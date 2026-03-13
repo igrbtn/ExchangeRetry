@@ -764,17 +764,29 @@ function Show-ExchangeRetryGUI {
     $lblSrv.Text = 'Exchange Server:'; $lblSrv.Location = New-Object System.Drawing.Point(10, 15); $lblSrv.AutoSize = $true
 
     $txtServer = New-Object System.Windows.Forms.TextBox
-    $txtServer.Location = New-Object System.Drawing.Point(130, 12); $txtServer.Size = New-Object System.Drawing.Size(250, 23)
+    $txtServer.Location = New-Object System.Drawing.Point(130, 12); $txtServer.Size = New-Object System.Drawing.Size(200, 23)
     $txtServer.Text = $script:Config.ExchangeServer
 
     $btnConnect = New-Btn -Text 'Connect' -W 90 -Color 'Blue'
-    $btnConnect.Location = New-Object System.Drawing.Point(390, 10)
+    $btnConnect.Location = New-Object System.Drawing.Point(340, 10)
 
     $lblStatus = New-Object System.Windows.Forms.Label
     $lblStatus.Text = 'Disconnected'; $lblStatus.ForeColor = [System.Drawing.Color]::Gray
-    $lblStatus.Location = New-Object System.Drawing.Point(490, 15); $lblStatus.AutoSize = $true
+    $lblStatus.Location = New-Object System.Drawing.Point(440, 15); $lblStatus.AutoSize = $true
 
-    $panelTop.Controls.AddRange(@($lblSrv, $txtServer, $btnConnect, $lblStatus))
+    # Scope: select which server to query
+    $lblScope = New-Object System.Windows.Forms.Label
+    $lblScope.Text = 'Scope:'; $lblScope.Location = New-Object System.Drawing.Point(650, 15); $lblScope.AutoSize = $true
+
+    $cmbScope = New-Object System.Windows.Forms.ComboBox
+    $cmbScope.DropDownStyle = 'DropDownList'
+    $cmbScope.Location = New-Object System.Drawing.Point(695, 12); $cmbScope.Size = New-Object System.Drawing.Size(250, 23)
+    $cmbScope.Items.Add('(All Servers)') | Out-Null
+    $cmbScope.SelectedIndex = 0
+
+    $script:ExchangeServers = @()
+
+    $panelTop.Controls.AddRange(@($lblSrv, $txtServer, $btnConnect, $lblStatus, $lblScope, $cmbScope))
 
     # ── Status Bar ──
     $statusBar = New-Object System.Windows.Forms.StatusStrip
@@ -803,8 +815,13 @@ function Show-ExchangeRetryGUI {
     # ══════════════════════════════════════════════════════════════════════
     $tabQ = New-Object System.Windows.Forms.TabPage; $tabQ.Text = 'Queues'; $tabQ.Padding = New-Object System.Windows.Forms.Padding(5)
 
+    # Main vertical split: queues+messages (top) | errors (bottom)
+    $splitQMain = New-Object System.Windows.Forms.SplitContainer
+    $splitQMain.Dock = 'Fill'; $splitQMain.Orientation = 'Horizontal'; $splitQMain.SplitterDistance = 450
+    $splitQMain.Panel2MinSize = 100
+
     $splitQ = New-Object System.Windows.Forms.SplitContainer
-    $splitQ.Dock = 'Fill'; $splitQ.Orientation = 'Horizontal'; $splitQ.SplitterDistance = 250
+    $splitQ.Dock = 'Fill'; $splitQ.Orientation = 'Horizontal'; $splitQ.SplitterDistance = 220
 
     # Top: queues
     $lblQ = New-BoldLabel 'Queues'
@@ -822,7 +839,7 @@ function Show-ExchangeRetryGUI {
     $barQ.Controls.AddRange(@($btnRefQ, $btnRetryQ, $txtQFilter, $chkAutoRef))
     $splitQ.Panel1.Controls.Add($dgvQ); $splitQ.Panel1.Controls.Add($barQ); $splitQ.Panel1.Controls.Add($lblQ)
 
-    # Bottom: messages
+    # Middle: messages
     $lblMsg = New-BoldLabel 'Messages'
     $dgvMsg = New-StyledDGV -Multi; $dgvMsg.Dock = 'Fill'
     $barMsg = New-FlowBar
@@ -835,7 +852,24 @@ function Show-ExchangeRetryGUI {
     $lblMsgCnt.Margin = New-Object System.Windows.Forms.Padding(20, 8, 0, 0); $lblMsgCnt.ForeColor = [System.Drawing.Color]::Gray
     $barMsg.Controls.AddRange(@($btnRetryM, $btnSuspM, $btnRemM, $chkNDR, $lblMsgCnt))
     $splitQ.Panel2.Controls.Add($dgvMsg); $splitQ.Panel2.Controls.Add($barMsg); $splitQ.Panel2.Controls.Add($lblMsg)
-    $tabQ.Controls.Add($splitQ)
+
+    $splitQMain.Panel1.Controls.Add($splitQ)
+
+    # Bottom: recent errors panel
+    $lblErrors = New-BoldLabel 'Recent Errors (FAIL/DEFER/DSN — last 24h)'
+    $lblErrors.ForeColor = [System.Drawing.Color]::FromArgb(200, 50, 50)
+    $dgvErrors = New-StyledDGV -Multi; $dgvErrors.Dock = 'Fill'
+    $dgvErrors.AlternatingRowsDefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(255, 245, 245)
+    $barErrors = New-FlowBar; $barErrors.Dock = 'Bottom'
+    $btnRefErrors = New-Btn -Text 'Refresh Errors' -W 120
+    $btnExportErrors = New-Btn -Text 'Export...' -W 90 -Color 'Green'
+    $lblErrCnt = New-Object System.Windows.Forms.Label; $lblErrCnt.AutoSize = $true
+    $lblErrCnt.ForeColor = [System.Drawing.Color]::FromArgb(200, 50, 50)
+    $lblErrCnt.Margin = New-Object System.Windows.Forms.Padding(20, 8, 0, 0)
+    $barErrors.Controls.AddRange(@($btnRefErrors, $btnExportErrors, $lblErrCnt))
+    $splitQMain.Panel2.Controls.Add($dgvErrors); $splitQMain.Panel2.Controls.Add($barErrors); $splitQMain.Panel2.Controls.Add($lblErrors)
+
+    $tabQ.Controls.Add($splitQMain)
 
     # ══════════════════════════════════════════════════════════════════════
     # TAB 2: MESSAGE TRACKING
@@ -1035,6 +1069,13 @@ function Show-ExchangeRetryGUI {
         if ($d.ShowDialog() -eq 'OK') { return $d.FileName }; return $null
     }
 
+    # Helper: get current scope server (empty = all servers)
+    $getScope = {
+        $sel = $cmbScope.SelectedItem
+        if (-not $sel -or $sel -eq '(All Servers)') { return '' }
+        return $sel.ToString()
+    }
+
     # Connect
     $btnConnect.Add_Click({
         $srv = $txtServer.Text.Trim()
@@ -1046,6 +1087,23 @@ function Show-ExchangeRetryGUI {
             $script:ExSession = Connect-ExchangeRemote -Server $srv
             $lblStatus.Text = "Connected: $srv"; $lblStatus.ForeColor = [System.Drawing.Color]::Green
             $btnConnect.Text = 'Reconnect'; $stLabel.Text = "Connected to $srv"
+
+            # Discover all Exchange transport servers and populate scope combo
+            $stLabel.Text = 'Discovering transport servers...'
+            try {
+                $cmbScope.Items.Clear()
+                $cmbScope.Items.Add('(All Servers)') | Out-Null
+                $transportServers = Get-TransportService -ErrorAction Stop | Select-Object -ExpandProperty Name | Sort-Object
+                $script:ExchangeServers = $transportServers
+                foreach ($ts in $transportServers) { $cmbScope.Items.Add($ts) | Out-Null }
+                $cmbScope.SelectedIndex = 0
+                $stLabel.Text = "Connected to $srv — found $($transportServers.Count) transport server(s)"
+            }
+            catch {
+                # Fallback: just add the connected server
+                $cmbScope.Items.Add($srv) | Out-Null
+                $stLabel.Text = "Connected to $srv (server discovery failed, added manually)"
+            }
         }
         catch {
             $lblStatus.Text = 'Failed'; $lblStatus.ForeColor = [System.Drawing.Color]::Red
@@ -1060,7 +1118,7 @@ function Show-ExchangeRetryGUI {
         $stLabel.Text = 'Loading dashboard...'
         $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
         try {
-            $txtDash.Text = Get-DashboardData -Server $txtServer.Text.Trim()
+            $txtDash.Text = Get-DashboardData -Server (& $getScope)
             $stLabel.Text = 'Dashboard loaded'
         }
         catch { $stLabel.Text = "Dashboard error: $_" }
@@ -1071,7 +1129,7 @@ function Show-ExchangeRetryGUI {
     $loadQ = {
         $stLabel.Text = 'Loading queues...'; $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
         try {
-            $qs = Get-ExchangeQueues -Server $txtServer.Text.Trim() -Filter $txtQFilter.Text.Trim()
+            $qs = Get-ExchangeQueues -Server (& $getScope) -Filter $txtQFilter.Text.Trim()
             $dgvQ.DataSource = [System.Collections.ArrayList]@($qs)
             $stLabel.Text = "$($qs.Count) queue(s)"
         }
@@ -1091,9 +1149,9 @@ function Show-ExchangeRetryGUI {
         finally { $form.Cursor = [System.Windows.Forms.Cursors]::Default }
     }
 
-    $btnRefQ.Add_Click({ & $loadQ })
+    $btnRefQ.Add_Click({ & $loadQ; & $loadErrors })
     $dgvQ.Add_SelectionChanged({ & $loadM })
-    $timer.Add_Tick({ & $loadQ })
+    $timer.Add_Tick({ & $loadQ; & $loadErrors })
     $chkAutoRef.Add_CheckedChanged({ if ($chkAutoRef.Checked) { $timer.Start() } else { $timer.Stop() } })
 
     $btnRetryQ.Add_Click({
@@ -1128,12 +1186,74 @@ function Show-ExchangeRetryGUI {
         }
     })
 
+    # ── Recent Errors (FAIL/DEFER/DSN) ──
+    $script:LastQueueErrors = $null
+    $loadErrors = {
+        $stLabel.Text = 'Loading recent errors...'
+        $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
+        try {
+            $srv = & $getScope
+            $errEvents = @()
+            foreach ($evType in @('FAIL','DEFER','DSN')) {
+                $p = @{
+                    Start = (Get-Date).AddDays(-1); End = Get-Date
+                    EventId = $evType; ResultSize = 200; ErrorAction = 'Stop'
+                }
+                if ($srv) { $p['Server'] = $srv }
+                try {
+                    $errEvents += Get-MessageTrackingLog @p |
+                        Select-Object Timestamp, EventId, Source, Sender,
+                            @{N='Recipients';E={$_.Recipients -join '; '}},
+                            MessageSubject, ServerHostname, ConnectorId,
+                            RecipientStatus, MessageId, SourceContext
+                } catch {}
+            }
+            $errEvents = $errEvents | Sort-Object Timestamp -Descending
+            $script:LastQueueErrors = $errEvents
+
+            $gridData = [System.Collections.ArrayList]::new()
+            foreach ($e in $errEvents) {
+                $gridData.Add([PSCustomObject]@{
+                    Time        = $e.Timestamp.ToString('yyyy-MM-dd HH:mm:ss')
+                    Event       = $e.EventId
+                    Sender      = $e.Sender
+                    Recipients  = $e.Recipients
+                    Subject     = $e.MessageSubject
+                    Server      = $e.ServerHostname
+                    Connector   = $e.ConnectorId
+                    Error       = $e.RecipientStatus
+                    MessageId   = $e.MessageId
+                }) | Out-Null
+            }
+            $dgvErrors.DataSource = $gridData
+
+            $failCnt = ($errEvents | Where-Object EventId -eq 'FAIL').Count
+            $deferCnt = ($errEvents | Where-Object EventId -eq 'DEFER').Count
+            $dsnCnt = ($errEvents | Where-Object EventId -eq 'DSN').Count
+            $lblErrCnt.Text = "FAIL: $failCnt  |  DEFER: $deferCnt  |  DSN: $dsnCnt  |  Total: $($errEvents.Count)"
+            $stLabel.Text = "Loaded $($errEvents.Count) error event(s)"
+        }
+        catch { $stLabel.Text = "Error loading errors: $_" }
+        finally { $form.Cursor = [System.Windows.Forms.Cursors]::Default }
+    }
+
+    $btnRefErrors.Add_Click({ & $loadErrors })
+
+    $btnExportErrors.Add_Click({
+        if (-not $script:LastQueueErrors) { return }
+        $f = & $showSave 'queue-errors.csv' 'CSV|*.csv|JSON|*.json'
+        if ($f) {
+            Export-ResultsToFile -Data $script:LastQueueErrors -FilePath $f -Format $(if ($f -match '\.json$'){'JSON'}else{'CSV'})
+            $stLabel.Text = "Exported: $f"
+        }
+    })
+
     # ── Message Tracking ──
     $btnTrSearch.Add_Click({
         $stLabel.Text = 'Searching...'; $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
         try {
             $p = @{ Start = $dtpTrStart.Value; End = $dtpTrEnd.Value }
-            $srv = $txtServer.Text.Trim(); if ($srv) { $p['Server'] = $srv }
+            $srv = & $getScope; if ($srv) { $p['Server'] = $srv }
             $mid = $txtTrMsgId.Text.Trim(); if ($mid) { $p['MessageId'] = $mid }
             $snd = $txtTrSender.Text.Trim(); if ($snd) { $p['Sender'] = $snd }
             $rcp = $txtTrRecip.Text.Trim(); if ($rcp) { $p['Recipient'] = $rcp }
@@ -1317,7 +1437,7 @@ function Show-ExchangeRetryGUI {
         $rt = $cmbRpt.SelectedItem.ToString()
         $stLabel.Text = "Running $rt report..."; $form.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
         try {
-            $txtRpt.Text = Get-TransportReportData -ReportType $rt -Server $txtServer.Text.Trim()
+            $txtRpt.Text = Get-TransportReportData -ReportType $rt -Server (& $getScope)
             $stLabel.Text = "$rt report done"
         }
         catch { $stLabel.Text = "Report error: $_" }
