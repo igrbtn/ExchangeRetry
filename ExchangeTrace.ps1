@@ -222,9 +222,9 @@ function Format-HeaderTrace {
     $spfColor = if ($ParsedHeaders.SPF -eq 'pass') { 'Green' } else { 'Red' }
     $dkimColor = if ($ParsedHeaders.DKIM -eq 'pass') { 'Green' } else { 'Red' }
     $dmarcColor = if ($ParsedHeaders.DMARC -eq 'pass') { 'Green' } else { 'Red' }
-    Write-Host "  SPF   : $($ParsedHeaders.SPF ?? 'N/A')" -ForegroundColor $spfColor
-    Write-Host "  DKIM  : $($ParsedHeaders.DKIM ?? 'N/A')" -ForegroundColor $dkimColor
-    Write-Host "  DMARC : $($ParsedHeaders.DMARC ?? 'N/A')" -ForegroundColor $dmarcColor
+    Write-Host "  SPF   : $(if ($ParsedHeaders.SPF) { $ParsedHeaders.SPF } else { 'N/A' })" -ForegroundColor $spfColor
+    Write-Host "  DKIM  : $(if ($ParsedHeaders.DKIM) { $ParsedHeaders.DKIM } else { 'N/A' })" -ForegroundColor $dkimColor
+    Write-Host "  DMARC : $(if ($ParsedHeaders.DMARC) { $ParsedHeaders.DMARC } else { 'N/A' })" -ForegroundColor $dmarcColor
 
     # Route
     Write-Host "`n── Route ($($ParsedHeaders.TotalHops) hops, total: $([math]::Round($ParsedHeaders.TotalDelayMs / 1000, 2))s) ──" -ForegroundColor Yellow
@@ -239,10 +239,10 @@ function Format-HeaderTrace {
         }
 
         Write-Host "  [$hopNum] " -NoNewline -ForegroundColor DarkGray
-        Write-Host "$($hop.From ?? '?')" -NoNewline -ForegroundColor White
+        Write-Host "$(if ($hop.From) { $hop.From } else { '?' })" -NoNewline -ForegroundColor White
         Write-Host " → " -NoNewline -ForegroundColor DarkGray
-        Write-Host "$($hop.By ?? '?')" -NoNewline -ForegroundColor Green
-        Write-Host " ($($hop.With ?? '?'))" -NoNewline -ForegroundColor DarkGray
+        Write-Host "$(if ($hop.By) { $hop.By } else { '?' })" -NoNewline -ForegroundColor Green
+        Write-Host " ($(if ($hop.With) { $hop.With } else { '?' }))" -NoNewline -ForegroundColor DarkGray
         if ($delayStr) {
             Write-Host $delayStr -ForegroundColor $delayColor
         } else {
