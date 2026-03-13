@@ -1,26 +1,23 @@
 # ExchangeRetry
 
 ## Overview
-Два инструмента для Microsoft Exchange: GUI для управления очередями (retry/suspend/remove) и консольная утилита для трассировки писем (парсинг заголовков, поиск по транспортным логам, отчёты).
+Полнофункциональный GUI + CLI для мониторинга и управления транспортом Microsoft Exchange. Отслеживание сообщений на каждом этапе пайплайна: очереди, message tracking, SMTP protocol logs, transport logs, анализ заголовков, отчёты.
 
 ## Quick Start
 ```powershell
-# GUI для очередей
+# GUI (полный функционал)
 .\ExchangeRetry.ps1
 
-# Трассировка: парсинг заголовков из файла
+# CLI — парсинг заголовков
 .\ExchangeTrace.ps1 -HeaderFile .\header.txt
 
-# Трассировка: поиск по Message-ID
+# CLI — трассировка по Message-ID
 .\ExchangeTrace.ps1 -MessageId "<abc@domain.com>" -Server exchange01
 
-# Трассировка: поиск по отправителю
-.\ExchangeTrace.ps1 -Sender user@domain.com -Server exchange01
+# CLI — поиск по транспортным логам
+.\ExchangeTrace.ps1 -TransportLogPath "\\server\TransportLogs" -SearchPattern "user@domain.com"
 
-# Поиск по транспортным логам
-.\ExchangeTrace.ps1 -TransportLogPath "\\exchange01\TransportLogs" -SearchPattern "user@domain.com"
-
-# Полный отчёт по транспорту
+# CLI — отчёт
 .\ExchangeTrace.ps1 -Report Full -Server exchange01
 
 # Тесты
@@ -28,22 +25,27 @@ Invoke-Pester -Path ./tests/
 ```
 
 ## Architecture
-- **ExchangeRetry.ps1** — WinForms GUI: подключение к Exchange, просмотр очередей, retry/suspend/remove
-- **ExchangeTrace.ps1** — CLI-утилита:
-  - Парсинг email-заголовков (Received hops, SPF/DKIM/DMARC, X-Headers)
-  - Message tracking через `Get-MessageTrackingLog`
-  - Поиск по текстовым транспортным логам (SMTP Send/Receive)
-  - Отчёты: Queues, Connectors, AgentLog, RoutingTable, DSN, Summary, Full
-  - Экспорт в CSV/JSON
+
+### GUI (ExchangeRetry.ps1) — 7 вкладок:
+1. **Dashboard** — здоровье транспорта: очереди, delivery rate (1h/24h), коннекторы, ошибки
+2. **Queues** — управление очередями: retry/suspend/remove с фильтрацией и auto-refresh
+3. **Message Tracking** — Get-MessageTrackingLog с фильтрами: EventId, Sender, Recipient, Subject, даты. Кнопка "Show Message Path" — визуализация маршрута письма
+4. **Protocol Logs** — парсинг SMTP Send/Receive protocol logs (CSV с #-комментариями)
+5. **Log Search** — текстовый поиск по любым логам с контекстом
+6. **Header Analyzer** — парсинг email-заголовков: hops, delays, SPF/DKIM/DMARC, TLS, X-Headers
+7. **Reports** — Full, Queues, Connectors, AgentLog, RoutingTable, DSN, Summary, Pipeline, BackPressure
+
+### CLI (ExchangeTrace.ps1):
+- Те же функции в консольном режиме с цветным выводом
+- Экспорт в CSV/JSON
 
 ## Configuration
 - `EXCHANGE_SERVER` — FQDN Exchange-сервера (env или ввод в GUI)
-- Auto-refresh interval: 30 секунд (настраивается в `$script:Config`)
+- Auto-refresh: 30 секунд (настраивается в `$script:Config`)
 
 ## Testing
 - Framework: Pester v5
-- Тесты: `tests/ExchangeRetry.Tests.ps1`
-- Запуск: `Invoke-Pester`
+- Тесты: `tests/ExchangeRetry.Tests.ps1`, `tests/ExchangeTrace.Tests.ps1`
 
 ## Versioning
-- Текущая версия: 0.1.0 (в шапке скриптов `.NOTES`)
+- Текущая версия: 0.3.0
