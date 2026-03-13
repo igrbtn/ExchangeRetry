@@ -1,20 +1,24 @@
 # ExchangeRetry
 
-Full-featured PowerShell GUI + CLI for monitoring and managing Microsoft Exchange transport pipeline.
+Full-featured PowerShell GUI + CLI for monitoring and managing Microsoft Exchange transport pipeline. All operations run asynchronously — the GUI never freezes.
 
 ## Features
 
 | Tab | Description |
 |-----|-------------|
-| **Dashboard** | Transport health at a glance: queue status, delivery rates (1h/24h), connector health, recent failures |
+| **Dashboard** | Transport health at a glance: queue status, delivery rates (1h/24h), connector health, alerts |
 | **Queues** | Queue management with retry/suspend/remove, filtering, auto-refresh, and **recent errors panel** (FAIL/DEFER/DSN) |
-| **Message Tracking** | Search `Get-MessageTrackingLog` with filters: EventId, Sender, Recipient, Subject, date range. **Show Message Path** — step-by-step route visualization |
+| **Message Tracking** | Search `Get-MessageTrackingLog` with filters: EventId, Sender, Recipient, Subject, date range. **Show Message Path** and **Cross-Server Trace** |
 | **Protocol Logs** | Parse SMTP Send/Receive protocol log files (Exchange CSV format) with text filtering |
 | **Log Search** | Full-text search across any transport log files with context display |
 | **Header Analyzer** | Parse email headers: Received hops with delays, SPF/DKIM/DMARC, TLS detection, X-MS-Exchange-* headers |
+| **Diagnostics** | DNS mail health (MX/SPF/DKIM/DMARC), Transport Rules viewer, Certificate manager, Connectivity Logs |
+| **Statistics** | Mail flow analytics: by Sender, Recipient, Domain, Hour, Connector |
 | **Reports** | 9 report types: Full, Queues, Connectors, AgentLog, RoutingTable, DSN, Summary, Pipeline, BackPressure |
 
 **Server Scope** — auto-discovers all Exchange transport servers on connect. Query a specific server or all at once.
+
+**Async Architecture** — all Exchange operations run in PowerShell runspaces with progress bars and a collapsible job console at the bottom.
 
 **Export** — all tabs support export to CSV/JSON.
 
@@ -66,6 +70,12 @@ Internet/Internal
 +-----------------+
 
 +-----------------+
+| DNS Records     |     Tab: Diagnostics > DNS
+| MX/SPF/DKIM/   |     Domain mail health check
+| DMARC           |
++-----------------+
+
++-----------------+
 | Transport Logs  |     Tab: Log Search
 | (connectivity,  |     Text search + context
 |  routing, etc)  |
@@ -86,6 +96,7 @@ Internet/Internal
 1. Enter Exchange server FQDN and click **Connect**
 2. All transport servers are auto-discovered in the **Scope** dropdown
 3. Navigate tabs to monitor and manage transport
+4. Watch the **Job Console** at the bottom for operation progress
 
 ### CLI
 ```powershell
@@ -117,52 +128,48 @@ $env:EXCHANGE_SERVER = "exchange01.domain.local"
 .\ExchangeRetry.ps1  # auto-fills server field
 ```
 
-## GUI Screenshots Layout
+## Async Architecture
 
-### Queues Tab (3-panel)
 ```
-+------------------------------------------+
-| Queues grid (with filters, auto-refresh) |
-+------------------------------------------+
-| Messages in selected queue               |
-| [Retry] [Suspend] [Remove] [NDR]        |
-+------------------------------------------+
-| Recent Errors (FAIL/DEFER/DSN - 24h)     |
-| FAIL: 3 | DEFER: 7 | DSN: 1 | Total: 11|
-+------------------------------------------+
+┌──────────────────────────────────────────────────┐
+│ WinForms UI Thread                                │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐          │
+│  │ Button   │  │ Timer   │  │ Poller  │ (200ms)  │
+│  │ Click    │  │ Auto-   │  │ checks  │          │
+│  │          │  │ refresh │  │ jobs    │          │
+│  └────┬─────┘  └────┬────┘  └────┬────┘          │
+│       │              │            │               │
+│       v              v            v               │
+│  Start-AsyncJob    Start-     Update-AsyncJobs    │
+│  (creates          AsyncJob   (EndInvoke,         │
+│   runspace)                    callbacks)          │
+└───────┬──────────────┬───────────┬────────────────┘
+        │              │           │
+        v              v           v
+┌───────────┐  ┌───────────┐  ┌─────────────────┐
+│ Runspace  │  │ Runspace  │  │ Job Console     │
+│ (Exchange │  │ (Exchange │  │ [12:30] START #1│
+│  cmdlets) │  │  cmdlets) │  │ [12:31] DONE #1│
+└───────────┘  └───────────┘  └─────────────────┘
 ```
 
-### Message Tracking
-```
-+------------------------------------------+
-| Filters: MsgID, Sender, Recipient,       |
-|          Subject, EventId, Date range    |
-+------------------------------------------+
-| Tracking results grid                    |
-| [Export] [Show Message Path]  N event(s) |
-+------------------------------------------+
-```
-
-## Reports
-
-| Report | Exchange Cmdlets Used |
-|--------|----------------------|
-| Queues | `Get-Queue` |
-| Connectors | `Get-SendConnector`, `Get-ReceiveConnector` |
-| AgentLog | `Get-TransportAgent`, `Get-AgentLog` |
-| RoutingTable | `Get-TransportConfig`, `Get-TransportService` |
-| DSN | `Get-TransportConfig`, `Get-MessageTrackingLog -EventId DSN` |
-| Summary | `Get-MessageTrackingLog` (full 24h analysis) |
-| Pipeline | `Get-TransportAgent` (sorted by priority) |
-| BackPressure | `Get-ExchangeDiagnosticInfo -Component ResourceThrottling` |
-| Full | All of the above |
+- Every Exchange operation (Connect, Queues, Tracking, Reports, DNS, Certs, Stats) runs in its own runspace
+- UI thread stays responsive — never blocks on network calls
+- Progress bar shows when jobs are running
+- Auto-refresh skips if jobs are already running (prevents pileup)
+- All callbacks wrapped in try/catch — core never crashes from module errors
 
 ## Project Structure
 
 ```
 ExchangeRetry/
-├── ExchangeRetry.ps1           # GUI (WinForms) — 7 tabs, full transport monitoring
+├── ExchangeRetry.ps1           # GUI (WinForms) — 9 tabs, async, job console
 ├── ExchangeTrace.ps1           # CLI — same functions, console output
+├── lib/
+│   ├── Core.ps1                # Exchange functions (connection, queues, tracking, reports)
+│   ├── Diagnostics.ps1         # DNS, transport rules, certificates, connectivity logs
+│   ├── Monitoring.ps1          # Settings, cache, operator log, alerts, statistics
+│   └── AsyncRunner.ps1         # Async framework (runspaces, progress, job console)
 ├── docs/
 │   ├── architecture.md         # GUI layout diagrams, tab structure
 │   └── data-flow.md            # Data flow diagrams for all features
@@ -174,6 +181,15 @@ ExchangeRetry/
 └── .gitignore
 ```
 
+## Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| **F5** | Refresh current tab |
+| **Ctrl+E** | Export current tab data |
+| **Ctrl+F** | Focus search/filter field |
+| **Escape** | Clear search/filter |
+
 ## Testing
 
 ```powershell
@@ -182,4 +198,4 @@ Invoke-Pester -Path ./tests/
 
 ## Version
 
-**0.3.0** — Full transport monitoring with Dashboard, Queues+Errors, Message Tracking with Path visualization, Protocol Log parser, Log Search, Header Analyzer, 9 report types, server scope selector.
+**0.5.0** — Full async architecture with runspaces, job console, progress bars. 9 tabs: Dashboard, Queues+Errors, Message Tracking with Path/Cross-Server, Protocol Logs, Log Search, Header Analyzer, Diagnostics (DNS/Rules/Certs/ConnLogs), Statistics, Reports. Comprehensive error handling — core never crashes.
