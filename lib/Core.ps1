@@ -118,56 +118,56 @@ function Get-TransportLogPaths {
     .SYNOPSIS
         Get configured log paths from Exchange transport service.
         Converts local paths to UNC when querying a remote server.
+        Returns PSCustomObject for reliable cross-runspace serialization.
     #>
     [CmdletBinding()]
     param(
         [string]$Server
     )
 
-    # Helper: extract string path from Exchange path objects (LocalLongFullPath, etc.)
-    function _ResolvePath($obj) {
-        if ($null -eq $obj) { return '' }
-        # Try .PathName property first (Exchange path objects)
-        if ($obj.PSObject.Properties['PathName']) { return [string]$obj.PathName }
-        # Try .LocalPath
-        if ($obj.PSObject.Properties['LocalPath']) { return [string]$obj.LocalPath }
-        # Fallback to string conversion
-        $s = [string]$obj
-        # Filter out type names that aren't paths
-        if ($s -match '^Microsoft\.' -or $s -match '^System\.') { return '' }
-        return $s
-    }
-
     try {
         $params = @{ ErrorAction = 'Stop' }
         if ($Server) { $params['Identity'] = $Server }
         $ts = Get-TransportService @params | Select-Object -First 1
 
-        $paths = @{
-            SendProtocolLog       = _ResolvePath $ts.SendProtocolLogPath
-            ReceiveProtocolLog    = _ResolvePath $ts.ReceiveProtocolLogPath
-            MessageTrackingLog    = _ResolvePath $ts.MessageTrackingLogPath
-            ConnectivityLog       = _ResolvePath $ts.ConnectivityLogPath
-            RoutingTableLog       = _ResolvePath $ts.RoutingTableLogPath
-            PipelineTracingPath   = _ResolvePath $ts.PipelineTracingPath
-            ServerName            = "$($ts.Name)"
-        }
+        # Extract paths as plain strings
+        $sendProto    = if ($ts.SendProtocolLogPath)    { $ts.SendProtocolLogPath.ToString() } else { '' }
+        $recvProto    = if ($ts.ReceiveProtocolLogPath) { $ts.ReceiveProtocolLogPath.ToString() } else { '' }
+        $msgTracking  = if ($ts.MessageTrackingLogPath) { $ts.MessageTrackingLogPath.ToString() } else { '' }
+        $connectivity = if ($ts.ConnectivityLogPath)    { $ts.ConnectivityLogPath.ToString() } else { '' }
+        $routingTable = if ($ts.RoutingTableLogPath)    { $ts.RoutingTableLogPath.ToString() } else { '' }
+        $pipeline     = if ($ts.PipelineTracingPath)    { $ts.PipelineTracingPath.ToString() } else { '' }
+        $serverName   = "$($ts.Name)"
 
         # Convert local paths (C:\...) to UNC (\\server\C$\...) for remote access
-        $serverName = $paths.ServerName
         $isLocal = ($serverName -eq $env:COMPUTERNAME) -or ($serverName -eq 'localhost')
 
         if (-not $isLocal -and $serverName) {
-            foreach ($key in @($paths.Keys)) {
-                if ($key -eq 'ServerName') { continue }
-                $p = $paths[$key]
+            $toUNC = {
+                param($p)
                 if ($p -and $p -match '^([A-Za-z]):\\(.+)$') {
-                    $paths[$key] = "\\$serverName\$($Matches[1])`$\$($Matches[2])"
+                    return "\\$serverName\$($Matches[1])`$\$($Matches[2])"
                 }
+                return $p
             }
+            $sendProto    = & $toUNC $sendProto
+            $recvProto    = & $toUNC $recvProto
+            $msgTracking  = & $toUNC $msgTracking
+            $connectivity = & $toUNC $connectivity
+            $routingTable = & $toUNC $routingTable
+            $pipeline     = & $toUNC $pipeline
         }
 
-        return $paths
+        # Return as PSCustomObject (serializes reliably across runspaces)
+        return [PSCustomObject]@{
+            SendProtocolLog    = [string]$sendProto
+            ReceiveProtocolLog = [string]$recvProto
+            MessageTrackingLog = [string]$msgTracking
+            ConnectivityLog    = [string]$connectivity
+            RoutingTableLog    = [string]$routingTable
+            PipelineTracingPath = [string]$pipeline
+            ServerName         = [string]$serverName
+        }
     }
     catch {
         throw "Failed to get transport log paths: $_"

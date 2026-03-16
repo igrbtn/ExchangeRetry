@@ -2109,9 +2109,16 @@ function Show-ExchangeRetryGUI {
         } -Parameters @{ Server = $server } -OnComplete {
             param($result)
             try {
-                # Convert deserialized result to regular hashtable
-                $lp = @{}
-                foreach ($key in $result.Keys) { $lp[$key] = [string]$result[$key] }
+                # Build hashtable from PSCustomObject properties for easy lookup
+                $lp = @{
+                    SendProtocolLog    = "$($result.SendProtocolLog)"
+                    ReceiveProtocolLog = "$($result.ReceiveProtocolLog)"
+                    MessageTrackingLog = "$($result.MessageTrackingLog)"
+                    ConnectivityLog    = "$($result.ConnectivityLog)"
+                    RoutingTableLog    = "$($result.RoutingTableLog)"
+                    PipelineTracingPath = "$($result.PipelineTracingPath)"
+                    ServerName         = "$($result.ServerName)"
+                }
                 $script:LogPaths = $lp
 
                 # Auto-populate Protocol Logs path (Send by default)
