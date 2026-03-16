@@ -9,6 +9,19 @@
 $script:AsyncJobs = [System.Collections.Generic.List[hashtable]]::new()
 $script:AsyncJobId = 0
 
+# Detect Exchange snap-in name once for runspace initialization
+$script:ExchangeSnapin = $null
+try {
+    $snap = Get-PSSnapin -Name Microsoft.Exchange.Management.PowerShell.SnapIn -Registered -ErrorAction SilentlyContinue
+    if ($snap) { $script:ExchangeSnapin = $snap.Name }
+} catch {}
+if (-not $script:ExchangeSnapin) {
+    try {
+        $snap = Get-PSSnapin -Name Microsoft.Exchange.Management.PowerShell.E2010 -Registered -ErrorAction SilentlyContinue
+        if ($snap) { $script:ExchangeSnapin = $snap.Name }
+    } catch {}
+}
+
 function Start-AsyncJob {
     <#
     .SYNOPSIS
@@ -37,9 +50,14 @@ function Start-AsyncJob {
 
     # Import functions from lib files into runspace
     $scriptRoot = $PSScriptRoot
+    # When running inside EMS, load Exchange snap-in into the runspace
+    $exchangeInit = ''
+    if ($script:ExchangeSnapin) {
+        $exchangeInit = "try { Add-PSSnapin $($script:ExchangeSnapin) -ErrorAction SilentlyContinue } catch {}`n"
+    }
     $initScript = @"
 Set-Location '$($PWD.Path)'
-. '$scriptRoot/Core.ps1'
+${exchangeInit}. '$scriptRoot/Core.ps1'
 . '$scriptRoot/Diagnostics.ps1'
 . '$scriptRoot/Monitoring.ps1'
 "@
