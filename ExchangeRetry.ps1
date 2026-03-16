@@ -1864,6 +1864,8 @@ function Show-ExchangeRetryGUI {
     # ─── Assemble tabs ───────────────────────────────────────────────────────
     $tabs.TabPages.AddRange(@($tabDash, $tabQueues, $tabTracking, $tabProtocol, $tabLogSearch, $tabHeaders, $tabDiag, $tabStats, $tabReports))
     $form.Controls.Add($tabs)
+    # BringToFront sets z-order so Fill docks LAST (after Top/Bottom panels claim space)
+    $tabs.BringToFront()
 
     # ─── EMS detection flag ─────────────────────────────────────────────────
     $script:IsEMS = Test-ExchangeManagementShell
