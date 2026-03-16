@@ -1466,24 +1466,39 @@ function Show-ExchangeRetryGUI {
 
             # Info textbox
             $sb = [System.Text.StringBuilder]::new()
-            if ($result.PSObject.Properties['MessageId'])  { [void]$sb.AppendLine("Message-ID : $($result.MessageId)") }
-            if ($result.PSObject.Properties['From'])       { [void]$sb.AppendLine("From       : $($result.From)") }
-            if ($result.PSObject.Properties['To'])         { [void]$sb.AppendLine("To         : $($result.To)") }
-            if ($result.PSObject.Properties['Subject'])    { [void]$sb.AppendLine("Subject    : $($result.Subject)") }
-            if ($result.PSObject.Properties['Date'])       { [void]$sb.AppendLine("Date       : $($result.Date)") }
-            if ($result.PSObject.Properties['ReturnPath']) { [void]$sb.AppendLine("Return-Path: $($result.ReturnPath)") }
-            if ($result.PSObject.Properties['SPF'])        { [void]$sb.AppendLine("SPF        : $($result.SPF)") }
-            if ($result.PSObject.Properties['DKIM'])       { [void]$sb.AppendLine("DKIM       : $($result.DKIM)") }
-            if ($result.PSObject.Properties['DMARC'])      { [void]$sb.AppendLine("DMARC      : $($result.DMARC)") }
-            if ($result.PSObject.Properties['Hops']) {
+            if ($result.MessageId)  { [void]$sb.AppendLine("Message-ID : $($result.MessageId)") }
+            if ($result.From)       { [void]$sb.AppendLine("From       : $($result.From)") }
+            if ($result.To)         { [void]$sb.AppendLine("To         : $($result.To)") }
+            if ($result.Subject)    { [void]$sb.AppendLine("Subject    : $($result.Subject)") }
+            if ($result.Date)       { [void]$sb.AppendLine("Date       : $($result.Date)") }
+            if ($result.ReturnPath) { [void]$sb.AppendLine("Return-Path: $($result.ReturnPath)") }
+            [void]$sb.AppendLine("")
+            if ($result.SPF)        { [void]$sb.AppendLine("SPF        : $($result.SPF)") }
+            if ($result.DKIM)       { [void]$sb.AppendLine("DKIM       : $($result.DKIM)") }
+            if ($result.DMARC)      { [void]$sb.AppendLine("DMARC      : $($result.DMARC)") }
+            # DKIM Signatures
+            if ($result.DKIMSignatures -and $result.DKIMSignatures.Count -gt 0) {
+                foreach ($ds in $result.DKIMSignatures) {
+                    [void]$sb.AppendLine("DKIM-Sig   : d=$($ds.Domain) s=$($ds.Selector) a=$($ds.Algorithm)")
+                }
+            }
+            # ARC
+            if ($result.ARC) {
+                [void]$sb.AppendLine("")
+                [void]$sb.AppendLine("ARC        : i=$($result.ARC.Instance) d=$($result.ARC.Domain) cv=$($result.ARC.CV)")
+                if ($result.ARC.AuthResults) {
+                    [void]$sb.AppendLine("ARC-Auth   : $($result.ARC.AuthResults)")
+                }
+            }
+            if ($result.Hops) {
                 $hopCount = ($result.Hops | Measure-Object).Count
+                [void]$sb.AppendLine("")
                 [void]$sb.AppendLine("Total Hops : $hopCount")
             }
-            if ($result.PSObject.Properties['TotalDelay']) { [void]$sb.AppendLine("Total Delay: $($result.TotalDelay)") }
             $txtHeaderInfo.Text = $sb.ToString()
 
             # Hops grid
-            if ($result.PSObject.Properties['Hops'] -and $result.Hops) {
+            if ($result.Hops) {
                 $hopsForDisplay = @()
                 $hopNum = 1
                 foreach ($hop in $result.Hops) {
@@ -1491,7 +1506,7 @@ function Show-ExchangeRetryGUI {
                         '#'         = $hopNum
                         From        = "$($hop.From)"
                         By          = "$($hop.By)"
-                        Protocol    = "$($hop.Protocol)"
+                        With        = "$($hop.With)"
                         TLS         = "$($hop.TLS)"
                         Timestamp   = "$($hop.Timestamp)"
                         Delay       = "$($hop.Delay)"
@@ -1501,17 +1516,37 @@ function Show-ExchangeRetryGUI {
                 Set-DGVData -DGV $dgvHops -Data $hopsForDisplay
             }
 
-            # X-Headers
-            if ($result.PSObject.Properties['XHeaders'] -and $result.XHeaders) {
-                $xhData = @()
-                foreach ($xh in $result.XHeaders) {
-                    $xhData += [PSCustomObject]@{
-                        Header = "$($xh.Name)"
-                        Value  = "$($xh.Value)"
+            # X-Headers (including ARC, DKIM, other non-X headers of interest)
+            $xhData = @()
+            if ($result.XHeaders -and $result.XHeaders.Count -gt 0) {
+                foreach ($key in $result.XHeaders.Keys) {
+                    $val = $result.XHeaders[$key]
+                    if ($val -is [System.Collections.Generic.List[string]]) {
+                        foreach ($v in $val) {
+                            $xhData += [PSCustomObject]@{ Header = $key; Value = $v }
+                        }
+                    } else {
+                        $xhData += [PSCustomObject]@{ Header = $key; Value = "$val" }
                     }
                 }
-                Set-DGVData -DGV $dgvXHeaders -Data $xhData
             }
+            # Add other notable headers
+            $notable = @('Arc-Seal','Arc-Authentication-Results','Arc-Message-Signature',
+                         'Dkim-Signature','DKIM-Signature','List-Unsubscribe','List-Unsubscribe-Post',
+                         'Received-SPF','Content-Type','Content-Transfer-Encoding','Mime-Version')
+            foreach ($nh in $notable) {
+                if ($result.AllHeaders -and $result.AllHeaders.Contains($nh)) {
+                    $val = $result.AllHeaders[$nh]
+                    if ($val -is [System.Collections.Generic.List[string]]) {
+                        foreach ($v in $val) {
+                            $xhData += [PSCustomObject]@{ Header = $nh; Value = $v }
+                        }
+                    } else {
+                        $xhData += [PSCustomObject]@{ Header = $nh; Value = "$val" }
+                    }
+                }
+            }
+            if ($xhData.Count -gt 0) { Set-DGVData -DGV $dgvXHeaders -Data $xhData }
 
             Update-StatusBar 'Header analysis complete'
         } catch { Update-StatusBar "Header error: $_" }

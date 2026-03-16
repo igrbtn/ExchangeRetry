@@ -508,6 +508,7 @@ function Parse-EmailHeaders {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
+        [Alias('HeaderText')]
         [string]$RawHeaders
     )
 
@@ -575,7 +576,7 @@ function Parse-EmailHeaders {
             if ($rec -match 'by\s+(\S+)') {
                 $hop['By'] = $Matches[1]
             }
-            if ($rec -match 'with\s+(\S+)') {
+            if ($rec -match 'with\s+([A-Za-z0-9]+)') {
                 $hop['With'] = $Matches[1]
             }
             if ($rec -match 'for\s+(<[^>]+>|\S+)') {
@@ -588,10 +589,14 @@ function Parse-EmailHeaders {
             # Timestamp - typically after a semicolon
             if ($rec -match ';\s*(.+)$') {
                 $tsString = $Matches[1].Trim()
-                $parsed = $null
-                if ([datetime]::TryParse($tsString, [ref]$parsed)) {
-                    $hop['Timestamp'] = $parsed
-                } else {
+                $parsed = [datetime]::MinValue
+                try {
+                    if ([datetime]::TryParse($tsString, [ref]$parsed)) {
+                        $hop['Timestamp'] = $parsed
+                    } else {
+                        $hop['Timestamp'] = $tsString
+                    }
+                } catch {
                     $hop['Timestamp'] = $tsString
                 }
             }
@@ -629,7 +634,7 @@ function Parse-EmailHeaders {
         $spf = $null; $dkim = $null; $dmarc = $null
 
         if ($authResults) {
-            if ($authResults -match '(?i)spf=(\S+)') { $spf = $Matches[1] }
+            if ($authResults -match '(?i)spf=([a-zA-Z]+)') { $spf = $Matches[1] }
             if ($authResults -match '(?i)dkim=(\S+)') { $dkim = $Matches[1] }
             if ($authResults -match '(?i)dmarc=(\S+)') { $dmarc = $Matches[1] }
         }
@@ -637,6 +642,43 @@ function Parse-EmailHeaders {
         $spfHeader = & $getFirst 'Received-SPF'
         if ($spfHeader -and -not $spf) {
             if ($spfHeader -match '^(\S+)') { $spf = $Matches[1] }
+        }
+
+        # Extract DKIM signatures
+        $dkimSigs = @()
+        if ($headers.Contains('Dkim-Signature') -or $headers.Contains('DKIM-Signature')) {
+            $dkimKey = if ($headers.Contains('DKIM-Signature')) { 'DKIM-Signature' } else { 'Dkim-Signature' }
+            $dkimRaw = $headers[$dkimKey]
+            if ($dkimRaw -is [System.Collections.Generic.List[string]]) { $dkimSigs = @($dkimRaw) }
+            else { $dkimSigs = @($dkimRaw) }
+        }
+        $dkimParsed = @()
+        foreach ($sig in $dkimSigs) {
+            $d = ''; $s = ''; $a = ''
+            if ($sig -match '(?i)\bd=([^;\s]+)') { $d = $Matches[1] }
+            if ($sig -match '(?i)\bs=([^;\s]+)') { $s = $Matches[1] }
+            if ($sig -match '(?i)\ba=([^;\s]+)') { $a = $Matches[1] }
+            $dkimParsed += [PSCustomObject]@{ Domain = $d; Selector = $s; Algorithm = $a }
+        }
+
+        # Extract ARC headers
+        $arcSeal = & $getFirst 'Arc-Seal'
+        $arcAuthResults = & $getFirst 'Arc-Authentication-Results'
+        $arcMsgSig = & $getFirst 'Arc-Message-Signature'
+        $arcInfo = $null
+        if ($arcSeal -or $arcAuthResults -or $arcMsgSig) {
+            $arcCV = ''
+            if ($arcSeal -match '(?i)\bcv=([^;\s]+)') { $arcCV = $Matches[1] }
+            $arcI = ''
+            if ($arcSeal -match '(?i)\bi=(\d+)') { $arcI = $Matches[1] }
+            $arcD = ''
+            if ($arcSeal -match '(?i)\bd=([^;\s]+)') { $arcD = $Matches[1] }
+            $arcInfo = [PSCustomObject]@{
+                Instance  = $arcI
+                Domain    = $arcD
+                CV        = $arcCV
+                AuthResults = $arcAuthResults
+            }
         }
 
         $result = [PSCustomObject]@{
@@ -651,6 +693,8 @@ function Parse-EmailHeaders {
             SPF             = $spf
             DKIM            = $dkim
             DMARC           = $dmarc
+            DKIMSignatures  = $dkimParsed
+            ARC             = $arcInfo
             Hops            = $reversedHops
             XHeaders        = $xHeaders
             AllHeaders      = $headers
