@@ -499,7 +499,7 @@ function Get-SenderStatistics {
             [PSCustomObject]@{
                 Sender       = $g.Name
                 MessageCount = $g.Count
-                TotalBytes   = $totalBytes
+                TotalMB      = [math]::Round($totalBytes / 1MB, 2)
                 LastSeen     = if ($lastSeen -eq [datetime]::MinValue) { $null } else { $lastSeen }
             }
         }
@@ -553,7 +553,7 @@ function Get-RecipientStatistics {
             [PSCustomObject]@{
                 Recipient    = $g.Name
                 MessageCount = $g.Count
-                TotalBytes   = [long]$totalBytes
+                TotalMB      = [math]::Round([long]$totalBytes / 1MB, 2)
                 LastSeen     = $lastSeen
             }
         }

@@ -931,11 +931,13 @@ function Show-ExchangeRetryGUI {
     # Bottom bar
     $trackBottom = New-FlowBar -H 38
     $btnTrackExport = New-Btn -Text 'Export...' -W 80
+    $btnTrackCSV = New-Btn -Text 'Export CSV' -W 90 -Color 'Green'
     $btnShowPath = New-Btn -Text 'Show Message Path' -W 140
     $btnCrossTrace = New-Btn -Text 'Cross-Server Trace' -W 140
+    $btnColumns = New-Btn -Text 'Columns...' -W 90
     $lblTrackCount = New-InlineLabel -Text '0 results' -MarginLeft 10
     $trackBottom.Dock = 'Bottom'
-    $trackBottom.Controls.AddRange(@($btnTrackExport, $btnShowPath, $btnCrossTrace, $lblTrackCount))
+    $trackBottom.Controls.AddRange(@($btnTrackExport, $btnTrackCSV, $btnShowPath, $btnCrossTrace, $btnColumns, $lblTrackCount))
 
     $trackPanel.Controls.Add($dgvTracking)
     $trackPanel.Controls.Add($trackBottom)
@@ -980,6 +982,83 @@ function Show-ExchangeRetryGUI {
     }
     $btnTrackSearch.Add_Click($doTrackSearch)
     $btnTrackExport.Add_Click({ Show-Export -Data $script:LastTrackingResults -DefaultName 'tracking' })
+
+    # Quick CSV export
+    $btnTrackCSV.Add_Click({
+        try {
+            if (-not $script:LastTrackingResults -or $script:LastTrackingResults.Count -eq 0) {
+                [System.Windows.Forms.MessageBox]::Show('No data to export.','Export','OK','Information')
+                return
+            }
+            $sfd = New-Object System.Windows.Forms.SaveFileDialog
+            $sfd.Filter = 'CSV Files (*.csv)|*.csv'
+            $sfd.FileName = "tracking-$(Get-Date -Format 'yyyyMMdd-HHmmss').csv"
+            if ($sfd.ShowDialog() -eq 'OK') {
+                # Export only visible columns in current order
+                $visibleCols = @()
+                foreach ($col in $dgvTracking.Columns) {
+                    if ($col.Visible) { $visibleCols += $col.Name }
+                }
+                $script:LastTrackingResults | Select-Object $visibleCols |
+                    Export-Csv -Path $sfd.FileName -NoTypeInformation -Encoding UTF8
+                Update-StatusBar "Exported to $($sfd.FileName)"
+            }
+        } catch { Update-StatusBar "CSV export error: $_" }
+    })
+
+    # Column chooser dialog
+    $btnColumns.Add_Click({
+        try {
+            if ($dgvTracking.Columns.Count -eq 0) { return }
+
+            $colForm = New-Object System.Windows.Forms.Form
+            $colForm.Text = 'Choose Columns'
+            $colForm.Size = New-Object System.Drawing.Size(350, 500)
+            $colForm.StartPosition = 'CenterParent'
+            $colForm.FormBorderStyle = 'FixedDialog'
+            $colForm.MaximizeBox = $false
+            $colForm.MinimizeBox = $false
+
+            $clb = New-Object System.Windows.Forms.CheckedListBox
+            $clb.Dock = 'Fill'
+            $clb.CheckOnClick = $true
+            $clb.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+
+            foreach ($col in $dgvTracking.Columns) {
+                $idx = $clb.Items.Add($col.Name)
+                $clb.SetItemChecked($idx, $col.Visible)
+            }
+
+            $btnPanel = New-Object System.Windows.Forms.FlowLayoutPanel
+            $btnPanel.Dock = 'Bottom'
+            $btnPanel.Height = 40
+            $btnPanel.FlowDirection = 'RightToLeft'
+            $btnPanel.Padding = New-Object System.Windows.Forms.Padding(4)
+
+            $btnApply = New-Btn -Text 'Apply' -W 80 -Color 'Blue'
+            $btnSelectAll = New-Btn -Text 'Select All' -W 90
+            $btnSelectNone = New-Btn -Text 'Select None' -W 90
+
+            $btnApply.Add_Click({
+                for ($i = 0; $i -lt $clb.Items.Count; $i++) {
+                    $colName = $clb.Items[$i]
+                    $dgvTracking.Columns[$colName].Visible = $clb.GetItemChecked($i)
+                }
+                $colForm.Close()
+            })
+            $btnSelectAll.Add_Click({
+                for ($i = 0; $i -lt $clb.Items.Count; $i++) { $clb.SetItemChecked($i, $true) }
+            })
+            $btnSelectNone.Add_Click({
+                for ($i = 0; $i -lt $clb.Items.Count; $i++) { $clb.SetItemChecked($i, $false) }
+            })
+
+            $btnPanel.Controls.AddRange(@($btnApply, $btnSelectNone, $btnSelectAll))
+            $colForm.Controls.Add($clb)
+            $colForm.Controls.Add($btnPanel)
+            $colForm.ShowDialog()
+        } catch { Update-StatusBar "Column chooser error: $_" }
+    })
 
     $showMessagePath = {
         try {

@@ -670,7 +670,7 @@ function Parse-SmtpProtocolLog {
         }
 
         $files = if ((Get-Item $LogPath).PSIsContainer) {
-            Get-ChildItem -Path $LogPath -Filter '*.log' -File -ErrorAction Stop |
+            Get-ChildItem -Path $LogPath -Filter '*.log' -File -Recurse -ErrorAction Stop |
                 Sort-Object LastWriteTime -Descending |
                 Select-Object -First $MaxFiles
         } else {
@@ -752,7 +752,7 @@ function Search-TransportLogs {
         }
 
         $files = if ((Get-Item $LogPath).PSIsContainer) {
-            Get-ChildItem -Path $LogPath -Filter '*.log' -File -ErrorAction Stop |
+            Get-ChildItem -Path $LogPath -Filter '*.log' -File -Recurse -ErrorAction Stop |
                 Sort-Object LastWriteTime -Descending |
                 Select-Object -First $MaxFiles
         } else {
@@ -808,7 +808,7 @@ function Parse-ConnectivityLog {
         }
 
         $files = if ((Get-Item $LogPath).PSIsContainer) {
-            Get-ChildItem -Path $LogPath -Filter '*.log' -File -ErrorAction Stop |
+            Get-ChildItem -Path $LogPath -Filter '*.log' -File -Recurse -ErrorAction Stop |
                 Sort-Object LastWriteTime -Descending |
                 Select-Object -First $MaxFiles
         } else {
