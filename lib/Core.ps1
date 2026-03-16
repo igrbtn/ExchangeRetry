@@ -1308,6 +1308,6 @@ function Export-ResultsToFile {
         }
     }
     catch {
-        throw "Failed to export results to '$FilePath' as $Format: $_"
+        throw "Failed to export results to '$FilePath' as ${Format}: $_"
     }
 }
