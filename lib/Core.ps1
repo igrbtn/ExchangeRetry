@@ -124,18 +124,32 @@ function Get-TransportLogPaths {
         [string]$Server
     )
 
+    # Helper: extract string path from Exchange path objects (LocalLongFullPath, etc.)
+    function _ResolvePath($obj) {
+        if ($null -eq $obj) { return '' }
+        # Try .PathName property first (Exchange path objects)
+        if ($obj.PSObject.Properties['PathName']) { return [string]$obj.PathName }
+        # Try .LocalPath
+        if ($obj.PSObject.Properties['LocalPath']) { return [string]$obj.LocalPath }
+        # Fallback to string conversion
+        $s = [string]$obj
+        # Filter out type names that aren't paths
+        if ($s -match '^Microsoft\.' -or $s -match '^System\.') { return '' }
+        return $s
+    }
+
     try {
         $params = @{ ErrorAction = 'Stop' }
         if ($Server) { $params['Identity'] = $Server }
         $ts = Get-TransportService @params | Select-Object -First 1
 
-        $paths = [ordered]@{
-            SendProtocolLog       = "$($ts.SendProtocolLogPath)"
-            ReceiveProtocolLog    = "$($ts.ReceiveProtocolLogPath)"
-            MessageTrackingLog    = "$($ts.MessageTrackingLogPath)"
-            ConnectivityLog       = "$($ts.ConnectivityLogPath)"
-            RoutingTableLog       = "$($ts.RoutingTableLogPath)"
-            PipelineTracingPath   = "$($ts.PipelineTracingPath)"
+        $paths = @{
+            SendProtocolLog       = _ResolvePath $ts.SendProtocolLogPath
+            ReceiveProtocolLog    = _ResolvePath $ts.ReceiveProtocolLogPath
+            MessageTrackingLog    = _ResolvePath $ts.MessageTrackingLogPath
+            ConnectivityLog       = _ResolvePath $ts.ConnectivityLogPath
+            RoutingTableLog       = _ResolvePath $ts.RoutingTableLogPath
+            PipelineTracingPath   = _ResolvePath $ts.PipelineTracingPath
             ServerName            = "$($ts.Name)"
         }
 
@@ -669,12 +683,17 @@ function Parse-SmtpProtocolLog {
             throw "Log path not found: $LogPath"
         }
 
-        $files = if ((Get-Item $LogPath).PSIsContainer) {
-            Get-ChildItem -Path $LogPath -Filter '*.log' -File -Recurse -ErrorAction Stop |
-                Sort-Object LastWriteTime -Descending |
-                Select-Object -First $MaxFiles
-        } else {
-            @(Get-Item $LogPath -ErrorAction Stop)
+        $files = @(
+            if ((Get-Item $LogPath).PSIsContainer) {
+                Get-ChildItem -Path $LogPath -Include '*.log','*.LOG','*.csv' -File -Recurse -ErrorAction Stop |
+                    Sort-Object LastWriteTime -Descending |
+                    Select-Object -First $MaxFiles
+            } else {
+                Get-Item $LogPath -ErrorAction Stop
+            }
+        )
+        if ($files.Count -eq 0) {
+            throw "No log files found in '$LogPath' (searched recursively)"
         }
 
         $results = [System.Collections.Generic.List[PSObject]]::new()
@@ -751,12 +770,17 @@ function Search-TransportLogs {
             throw "Log path not found: $LogPath"
         }
 
-        $files = if ((Get-Item $LogPath).PSIsContainer) {
-            Get-ChildItem -Path $LogPath -Filter '*.log' -File -Recurse -ErrorAction Stop |
-                Sort-Object LastWriteTime -Descending |
-                Select-Object -First $MaxFiles
-        } else {
-            @(Get-Item $LogPath -ErrorAction Stop)
+        $files = @(
+            if ((Get-Item $LogPath).PSIsContainer) {
+                Get-ChildItem -Path $LogPath -Include '*.log','*.LOG','*.csv' -File -Recurse -ErrorAction Stop |
+                    Sort-Object LastWriteTime -Descending |
+                    Select-Object -First $MaxFiles
+            } else {
+                Get-Item $LogPath -ErrorAction Stop
+            }
+        )
+        if ($files.Count -eq 0) {
+            throw "No log files found in '$LogPath' (searched recursively)"
         }
 
         $results = [System.Collections.Generic.List[PSObject]]::new()
@@ -807,12 +831,17 @@ function Parse-ConnectivityLog {
             throw "Log path not found: $LogPath"
         }
 
-        $files = if ((Get-Item $LogPath).PSIsContainer) {
-            Get-ChildItem -Path $LogPath -Filter '*.log' -File -Recurse -ErrorAction Stop |
-                Sort-Object LastWriteTime -Descending |
-                Select-Object -First $MaxFiles
-        } else {
-            @(Get-Item $LogPath -ErrorAction Stop)
+        $files = @(
+            if ((Get-Item $LogPath).PSIsContainer) {
+                Get-ChildItem -Path $LogPath -Include '*.log','*.LOG','*.csv' -File -Recurse -ErrorAction Stop |
+                    Sort-Object LastWriteTime -Descending |
+                    Select-Object -First $MaxFiles
+            } else {
+                Get-Item $LogPath -ErrorAction Stop
+            }
+        )
+        if ($files.Count -eq 0) {
+            throw "No log files found in '$LogPath' (searched recursively)"
         }
 
         $results = [System.Collections.Generic.List[PSObject]]::new()

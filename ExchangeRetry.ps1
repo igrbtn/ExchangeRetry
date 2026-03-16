@@ -2074,16 +2074,27 @@ function Show-ExchangeRetryGUI {
         } -Parameters @{ Server = $server } -OnComplete {
             param($result)
             try {
-                $script:LogPaths = $result
+                # Convert deserialized result to regular hashtable
+                $lp = @{}
+                foreach ($key in $result.Keys) { $lp[$key] = [string]$result[$key] }
+                $script:LogPaths = $lp
+
                 # Auto-populate Protocol Logs path (Send by default)
-                if (-not $txtProtoPath.Text -and $result.SendProtocolLog) {
-                    $txtProtoPath.Text = $result.SendProtocolLog
+                $sendPath = $lp['SendProtocolLog']
+                if ($sendPath) { $txtProtoPath.Text = $sendPath }
+
+                # Auto-populate Log Search path based on current dropdown
+                $logTypeIdx = $cmbLogType.SelectedIndex
+                if ($logTypeIdx -lt 6) {
+                    $key = $script:LogTypeMap[$logTypeIdx]
+                    $p = $lp[$key]
+                    if ($p) { $txtLogPath.Text = $p }
                 }
-                # Auto-populate Log Search path
-                if (-not $txtLogPath.Text -and $result.SendProtocolLog) {
-                    $txtLogPath.Text = $result.SendProtocolLog
-                }
-            } catch {}
+
+                Update-StatusBar "Log paths loaded from $($lp['ServerName'])"
+            } catch {
+                Update-StatusBar "Log paths error: $_"
+            }
         } -OnError { param($err) Update-StatusBar "Log paths: $err" }
 
         # Auto-refresh initial data
