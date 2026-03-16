@@ -41,6 +41,7 @@ $script:LastRulesData        = @()
 $script:LastCertData         = @()
 $script:LastStatisticsData   = @()
 $script:LastReportText       = ''
+$script:LogPaths             = $null
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # GUI HELPERS
@@ -1034,7 +1035,14 @@ function Show-ExchangeRetryGUI {
     $protoPanel.Dock = 'Fill'
 
     $protoToolbar = New-FlowBar -H 38
-    $lblProtoPath = New-InlineLabel -Text 'Log Path:'
+    $lblProtoType = New-InlineLabel -Text 'Log Type:'
+    $cmbProtoType = New-Object System.Windows.Forms.ComboBox
+    $cmbProtoType.Width = 140
+    $cmbProtoType.DropDownStyle = 'DropDownList'
+    $cmbProtoType.Margin = New-Object System.Windows.Forms.Padding(3,6,3,4)
+    [void]$cmbProtoType.Items.AddRange(@('Send Protocol', 'Receive Protocol'))
+    $cmbProtoType.SelectedIndex = 0
+    $lblProtoPath = New-InlineLabel -Text 'Path:'
     $txtProtoPath = New-Object System.Windows.Forms.TextBox
     $txtProtoPath.Width = 300
     $txtProtoPath.Height = 24
@@ -1053,7 +1061,15 @@ function Show-ExchangeRetryGUI {
     $nudProtoMax.Value = 50
     $nudProtoMax.Margin = New-Object System.Windows.Forms.Padding(3,6,3,4)
     $btnProtoLoad = New-Btn -Text 'Load & Parse' -W 100 -Color 'Blue'
-    $protoToolbar.Controls.AddRange(@($lblProtoPath, $txtProtoPath, $btnProtoBrowse, $lblProtoFilter, $txtProtoFilter, $lblProtoMax, $nudProtoMax, $btnProtoLoad))
+    $protoToolbar.Controls.AddRange(@($lblProtoType, $cmbProtoType, $lblProtoPath, $txtProtoPath, $btnProtoBrowse, $lblProtoFilter, $txtProtoFilter, $lblProtoMax, $nudProtoMax, $btnProtoLoad))
+
+    # Update path when log type changes
+    $cmbProtoType.Add_SelectedIndexChanged({
+        if ($script:LogPaths) {
+            $key = if ($cmbProtoType.SelectedIndex -eq 0) { 'SendProtocolLog' } else { 'ReceiveProtocolLog' }
+            $txtProtoPath.Text = "$($script:LogPaths[$key])"
+        }
+    })
 
     $dgvProtocol = New-StyledDGV
 
@@ -1113,6 +1129,13 @@ function Show-ExchangeRetryGUI {
     $logSearchPanel.Dock = 'Fill'
 
     $logSearchToolbar = New-FlowBar -H 38
+    $lblLogType = New-InlineLabel -Text 'Log Type:'
+    $cmbLogType = New-Object System.Windows.Forms.ComboBox
+    $cmbLogType.Width = 160
+    $cmbLogType.DropDownStyle = 'DropDownList'
+    $cmbLogType.Margin = New-Object System.Windows.Forms.Padding(3,6,3,4)
+    [void]$cmbLogType.Items.AddRange(@('Send Protocol', 'Receive Protocol', 'Message Tracking', 'Connectivity', 'Routing Table', 'Pipeline Tracing', 'Custom...'))
+    $cmbLogType.SelectedIndex = 0
     $lblLogPath = New-InlineLabel -Text 'Path:'
     $txtLogPath = New-Object System.Windows.Forms.TextBox
     $txtLogPath.Width = 300
@@ -1125,7 +1148,23 @@ function Show-ExchangeRetryGUI {
     $txtLogPattern.Height = 24
     $txtLogPattern.Margin = New-Object System.Windows.Forms.Padding(3,6,3,4)
     $btnLogSearch = New-Btn -Text 'Search' -W 80 -Color 'Blue'
-    $logSearchToolbar.Controls.AddRange(@($lblLogPath, $txtLogPath, $btnLogBrowse, $lblLogPattern, $txtLogPattern, $btnLogSearch))
+    $logSearchToolbar.Controls.AddRange(@($lblLogType, $cmbLogType, $lblLogPath, $txtLogPath, $btnLogBrowse, $lblLogPattern, $txtLogPattern, $btnLogSearch))
+
+    # Map log type dropdown to saved paths
+    $script:LogTypeMap = @{
+        0 = 'SendProtocolLog'
+        1 = 'ReceiveProtocolLog'
+        2 = 'MessageTrackingLog'
+        3 = 'ConnectivityLog'
+        4 = 'RoutingTableLog'
+        5 = 'PipelineTracingPath'
+    }
+    $cmbLogType.Add_SelectedIndexChanged({
+        if ($script:LogPaths -and $cmbLogType.SelectedIndex -lt 6) {
+            $key = $script:LogTypeMap[$cmbLogType.SelectedIndex]
+            $txtLogPath.Text = "$($script:LogPaths[$key])"
+        }
+    })
 
     $logSplit = New-Object System.Windows.Forms.SplitContainer
     $logSplit.Dock = 'Fill'
@@ -1898,6 +1937,25 @@ function Show-ExchangeRetryGUI {
 
         try { Write-OperatorLog -Action 'Connect' -Target $server } catch {}
         Update-StatusBar "Connected to $server"
+
+        # Fetch log paths from transport config
+        Start-AsyncJob -Name 'LogPaths' -Form $form -ScriptBlock {
+            param($Server)
+            return Get-TransportLogPaths -Server $Server
+        } -Parameters @{ Server = $server } -OnComplete {
+            param($result)
+            try {
+                $script:LogPaths = $result
+                # Auto-populate Protocol Logs path (Send by default)
+                if (-not $txtProtoPath.Text -and $result.SendProtocolLog) {
+                    $txtProtoPath.Text = $result.SendProtocolLog
+                }
+                # Auto-populate Log Search path
+                if (-not $txtLogPath.Text -and $result.SendProtocolLog) {
+                    $txtLogPath.Text = $result.SendProtocolLog
+                }
+            } catch {}
+        } -OnError { param($err) Update-StatusBar "Log paths: $err" }
 
         # Auto-refresh initial data
         & $refreshDashboard

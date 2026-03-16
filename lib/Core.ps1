@@ -113,6 +113,53 @@ function Get-ExchangeTransportServers {
     }
 }
 
+function Get-TransportLogPaths {
+    <#
+    .SYNOPSIS
+        Get configured log paths from Exchange transport service.
+        Converts local paths to UNC when querying a remote server.
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$Server
+    )
+
+    try {
+        $params = @{ ErrorAction = 'Stop' }
+        if ($Server) { $params['Identity'] = $Server }
+        $ts = Get-TransportService @params | Select-Object -First 1
+
+        $paths = [ordered]@{
+            SendProtocolLog       = "$($ts.SendProtocolLogPath)"
+            ReceiveProtocolLog    = "$($ts.ReceiveProtocolLogPath)"
+            MessageTrackingLog    = "$($ts.MessageTrackingLogPath)"
+            ConnectivityLog       = "$($ts.ConnectivityLogPath)"
+            RoutingTableLog       = "$($ts.RoutingTableLogPath)"
+            PipelineTracingPath   = "$($ts.PipelineTracingPath)"
+            ServerName            = "$($ts.Name)"
+        }
+
+        # Convert local paths (C:\...) to UNC (\\server\C$\...) for remote access
+        $serverName = $paths.ServerName
+        $isLocal = ($serverName -eq $env:COMPUTERNAME) -or ($serverName -eq 'localhost')
+
+        if (-not $isLocal -and $serverName) {
+            foreach ($key in @($paths.Keys)) {
+                if ($key -eq 'ServerName') { continue }
+                $p = $paths[$key]
+                if ($p -and $p -match '^([A-Za-z]):\\(.+)$') {
+                    $paths[$key] = "\\$serverName\$($Matches[1])`$\$($Matches[2])"
+                }
+            }
+        }
+
+        return $paths
+    }
+    catch {
+        throw "Failed to get transport log paths: $_"
+    }
+}
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Queue Operations
 # ──────────────────────────────────────────────────────────────────────────────
