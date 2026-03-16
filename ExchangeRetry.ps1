@@ -848,24 +848,74 @@ function Show-ExchangeRetryGUI {
     # Results grid
     $dgvTracking = New-StyledDGV -Multi
 
-    # Tracking row color coding by EventId
+    # EventId color map
+    $script:EventIdColors = @{
+        'DELIVER'       = [System.Drawing.Color]::FromArgb(200,255,200)   # green
+        'FAIL'          = [System.Drawing.Color]::FromArgb(255,180,180)   # red
+        'DEFER'         = [System.Drawing.Color]::FromArgb(255,255,180)   # yellow
+        'SEND'          = [System.Drawing.Color]::FromArgb(200,240,255)   # light blue
+        'RECEIVE'       = [System.Drawing.Color]::FromArgb(230,230,255)   # lavender
+        'DSN'           = [System.Drawing.Color]::FromArgb(255,210,160)   # orange
+        'SUBMIT'        = [System.Drawing.Color]::FromArgb(220,235,255)   # pale blue
+        'RESOLVE'       = [System.Drawing.Color]::FromArgb(230,255,240)   # mint
+        'EXPAND'        = [System.Drawing.Color]::FromArgb(240,230,255)   # lilac
+        'REDIRECT'      = [System.Drawing.Color]::FromArgb(255,230,240)   # pink
+        'TRANSFER'      = [System.Drawing.Color]::FromArgb(220,245,245)   # teal
+        'POISONMESSAGE' = [System.Drawing.Color]::FromArgb(255,150,150)   # dark red
+    }
+    # Highlighted MessageId (set on row click)
+    $script:HighlightedMessageId = $null
+
+    # Tracking row color coding by EventId + MessageId highlight
     $dgvTracking.Add_CellFormatting({
         param($s, $e)
         try {
             if ($e.RowIndex -lt 0) { return }
             $row = $s.Rows[$e.RowIndex]
+
+            # MessageId highlight takes priority
+            if ($script:HighlightedMessageId) {
+                $msgIdCol = $null
+                foreach ($c in $s.Columns) { if ($c.Name -eq 'MessageId') { $msgIdCol = $c.Index; break } }
+                if ($null -ne $msgIdCol) {
+                    $msgId = "$($row.Cells[$msgIdCol].Value)"
+                    if ($msgId -eq $script:HighlightedMessageId) {
+                        $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(180,210,255)
+                        $row.DefaultCellStyle.Font = New-Object System.Drawing.Font($s.Font, [System.Drawing.FontStyle]::Bold)
+                        return
+                    }
+                }
+            }
+
+            # EventId color coding
             $eventCol = $null
             foreach ($c in $s.Columns) { if ($c.Name -eq 'EventId') { $eventCol = $c.Index; break } }
             if ($null -ne $eventCol) {
                 $val = "$($row.Cells[$eventCol].Value)"
-                switch -Regex ($val) {
-                    'DELIVER' { $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(200,255,200) }
-                    'FAIL'    { $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(255,180,180) }
-                    'DEFER'   { $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(255,255,180) }
-                    'SEND'    { $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(200,240,255) }
-                    'RECEIVE' { $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(230,230,255) }
-                    'DSN'     { $row.DefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(255,210,160) }
+                if ($script:EventIdColors.ContainsKey($val)) {
+                    $row.DefaultCellStyle.BackColor = $script:EventIdColors[$val]
+                    $row.DefaultCellStyle.Font = $s.Font
                 }
+            }
+        } catch {}
+    })
+
+    # Click row to highlight all events with same MessageId
+    $dgvTracking.Add_CellClick({
+        param($s, $e)
+        try {
+            if ($e.RowIndex -lt 0) { return }
+            $msgIdCol = $null
+            foreach ($c in $s.Columns) { if ($c.Name -eq 'MessageId') { $msgIdCol = $c.Index; break } }
+            if ($null -ne $msgIdCol) {
+                $clickedMsgId = "$($s.Rows[$e.RowIndex].Cells[$msgIdCol].Value)"
+                if ($script:HighlightedMessageId -eq $clickedMsgId) {
+                    # Click same MessageId again to clear highlight
+                    $script:HighlightedMessageId = $null
+                } else {
+                    $script:HighlightedMessageId = $clickedMsgId
+                }
+                $s.Invalidate()
             }
         } catch {}
     })
