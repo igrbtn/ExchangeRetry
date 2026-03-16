@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    ExchangeRetry v0.5 — Exchange Transport Manager GUI.
+    ExchangeRetry v0.5 - Exchange Transport Manager GUI.
 .DESCRIPTION
     WinForms GUI for monitoring and managing Microsoft Exchange transport.
     All Exchange operations run asynchronously via runspaces (lib/AsyncRunner.ps1).
@@ -27,6 +27,7 @@ $script:Settings = try { Get-AppSettings } catch { @{} }
 
 # ─── Script-scope state ─────────────────────────────────────────────────────
 $script:Session              = $null
+$script:Connected            = $false
 $script:TransportServers     = @()
 $script:LastDashboardData    = $null
 $script:LastQueueData        = @()
@@ -198,7 +199,7 @@ function Show-ExchangeRetryGUI {
 
     # ─── Form ────────────────────────────────────────────────────────────────
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'ExchangeRetry v0.5 — Exchange Transport Manager'
+    $form.Text = 'ExchangeRetry v0.5 - Exchange Transport Manager'
     $form.Size = New-Object System.Drawing.Size(1400, 900)
     $form.MinimumSize = New-Object System.Drawing.Size(1100, 700)
     $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
@@ -231,7 +232,15 @@ function Show-ExchangeRetryGUI {
         }
     } catch {}
     $txtServer.AutoCompleteCustomSource = $autoComplete
-    try { if ($script:Settings.LastServer) { $txtServer.Text = $script:Settings.LastServer } } catch {}
+    # Try saved server, then auto-detect from EMS
+    try {
+        if ($script:Settings.LastServer) {
+            $txtServer.Text = $script:Settings.LastServer
+        } else {
+            $detected = Get-LocalExchangeServer
+            if ($detected) { $txtServer.Text = $detected }
+        }
+    } catch {}
 
     $btnConnect = New-Btn -Text 'Connect' -W 90 -Color 'Blue'
     $btnDisconnect = New-Btn -Text 'Disconnect' -W 90 -Color 'Red'
@@ -275,6 +284,9 @@ function Show-ExchangeRetryGUI {
     # ─── Tab Control ─────────────────────────────────────────────────────────
     $tabs = New-Object System.Windows.Forms.TabControl
     $tabs.Dock = 'Fill'
+    $tabs.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+    $tabs.Padding = New-Object System.Drawing.Point(12, 4)
+    $tabs.ItemSize = New-Object System.Drawing.Size(0, 28)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # TAB 1: DASHBOARD
@@ -1280,7 +1292,7 @@ function Show-ExchangeRetryGUI {
         if (-not $txtHeaderInput.Text) { return }
         Update-StatusBar 'Analyzing headers...'
         try {
-            # Header parsing is CPU-only, no Exchange calls, runs fast — keep sync
+            # Header parsing is CPU-only, no Exchange calls, runs fast - keep sync
             $result = Parse-EmailHeaders -HeaderText $txtHeaderInput.Text
             $script:LastHeaderResult = $result
 
@@ -1853,7 +1865,45 @@ function Show-ExchangeRetryGUI {
     $tabs.TabPages.AddRange(@($tabDash, $tabQueues, $tabTracking, $tabProtocol, $tabLogSearch, $tabHeaders, $tabDiag, $tabStats, $tabReports))
     $form.Controls.Add($tabs)
 
-    # ─── Connect button (async) ──────────────────────────────────────────────
+    # ─── EMS detection flag ─────────────────────────────────────────────────
+    $script:IsEMS = Test-ExchangeManagementShell
+
+    # Helper: finish connect UI (shared by EMS and remote paths)
+    $completeConnect = {
+        param([string]$server, $session, $transportServers)
+        # Disconnect old session if exists
+        if ($script:Session -and -not $script:IsEMS) {
+            try { Disconnect-ExchangeRemote -Session $script:Session } catch {}
+        }
+        $script:Session = $session
+        $script:Connected = $true
+        $script:TransportServers = $transportServers
+
+        $lblConnStatus.Text = "Connected: $server"
+        $lblConnStatus.ForeColor = [System.Drawing.Color]::Green
+        $btnConnect.Enabled = $true
+        $btnDisconnect.Visible = $true
+        try { Update-RecentServers -Server $server } catch {}
+
+        # Populate scope combo
+        $script:ScopeCombo.Items.Clear()
+        [void]$script:ScopeCombo.Items.Add('(All Servers)')
+        foreach ($ts in $transportServers) {
+            $name = if ($ts -is [string]) { $ts } else { $ts.Name }
+            [void]$script:ScopeCombo.Items.Add($name)
+        }
+        $script:ScopeCombo.SelectedIndex = 0
+
+        try { Write-OperatorLog -Action 'Connect' -Target $server } catch {}
+        Update-StatusBar "Connected to $server"
+
+        # Auto-refresh initial data
+        & $refreshDashboard
+        & $refreshQueues
+        & $refreshErrors
+    }
+
+    # ─── Connect button ──────────────────────────────────────────────────────
     $btnConnect.Add_Click({
         $server = $txtServer.Text.Trim()
         if (-not $server) {
@@ -1865,65 +1915,54 @@ function Show-ExchangeRetryGUI {
         $lblConnStatus.ForeColor = [System.Drawing.Color]::FromArgb(200,150,0)
         $btnConnect.Enabled = $false
 
-        Start-AsyncJob -Name "Connect $server" -Form $form -ScriptBlock {
-            param($Server)
-            $session = Connect-ExchangeRemote -Server $Server
-            $transportServers = @()
-            try { $transportServers = @(Get-ExchangeTransportServers) } catch {}
-            return @{ Session = $session; TransportServers = $transportServers }
-        } -Parameters @{ Server = $server } -OnComplete {
-            param($result)
+        if ($script:IsEMS) {
+            # Already inside Exchange Management Shell - cmdlets are loaded, no PSSession needed
             try {
-                # Disconnect old session if exists
-                if ($script:Session) {
-                    try { Disconnect-ExchangeRemote -Session $script:Session } catch {}
-                }
-                $script:Session = $result.Session
-                $script:TransportServers = $result.TransportServers
-
-                $lblConnStatus.Text = "Connected: $server"
-                $lblConnStatus.ForeColor = [System.Drawing.Color]::Green
-                $btnConnect.Enabled = $true
-                $btnDisconnect.Visible = $true
-                try { Update-RecentServers -Server $server } catch {}
-
-                # Populate scope combo
-                $script:ScopeCombo.Items.Clear()
-                [void]$script:ScopeCombo.Items.Add('(All Servers)')
-                foreach ($ts in $script:TransportServers) {
-                    [void]$script:ScopeCombo.Items.Add($ts.Name)
-                }
-                $script:ScopeCombo.SelectedIndex = 0
-
-                try { Write-OperatorLog -Action 'Connect' -Target $server } catch {}
-                Update-StatusBar "Connected to $server"
-
-                # Auto-refresh initial data
-                & $refreshDashboard
-                & $refreshQueues
-                & $refreshErrors
+                $transportServers = @()
+                try { $transportServers = @(Get-ExchangeTransportServers) } catch {}
+                & $completeConnect $server $null $transportServers
             } catch {
-                $lblConnStatus.Text = 'Connection setup error'
+                $lblConnStatus.Text = 'Connection failed'
                 $lblConnStatus.ForeColor = [System.Drawing.Color]::Red
                 $btnConnect.Enabled = $true
-                Update-StatusBar "Connection setup error: $_"
+                Update-StatusBar "EMS connect error: $_"
             }
-        } -OnError {
-            param($err)
-            $lblConnStatus.Text = 'Connection failed'
-            $lblConnStatus.ForeColor = [System.Drawing.Color]::Red
-            $btnConnect.Enabled = $true
-            Update-StatusBar "Connection failed: $err"
-            [System.Windows.Forms.MessageBox]::Show("Failed to connect: $err",'Connection Error','OK','Error')
+        } else {
+            # Remote connection via PSSession
+            Start-AsyncJob -Name "Connect $server" -Form $form -ScriptBlock {
+                param($Server)
+                $session = Connect-ExchangeRemote -Server $Server
+                $transportServers = @()
+                try { $transportServers = @(Get-ExchangeTransportServers) } catch {}
+                return @{ Session = $session; TransportServers = $transportServers }
+            } -Parameters @{ Server = $server } -OnComplete {
+                param($result)
+                try {
+                    & $completeConnect $server $result.Session $result.TransportServers
+                } catch {
+                    $lblConnStatus.Text = 'Connection setup error'
+                    $lblConnStatus.ForeColor = [System.Drawing.Color]::Red
+                    $btnConnect.Enabled = $true
+                    Update-StatusBar "Connection setup error: $_"
+                }
+            } -OnError {
+                param($err)
+                $lblConnStatus.Text = 'Connection failed'
+                $lblConnStatus.ForeColor = [System.Drawing.Color]::Red
+                $btnConnect.Enabled = $true
+                Update-StatusBar "Connection failed: $err"
+                [System.Windows.Forms.MessageBox]::Show("Failed to connect: $err",'Connection Error','OK','Error')
+            }
         }
     })
 
     $btnDisconnect.Add_Click({
         try {
-            if ($script:Session) {
+            if ($script:Session -and -not $script:IsEMS) {
                 try { Disconnect-ExchangeRemote -Session $script:Session } catch {}
-                $script:Session = $null
             }
+            $script:Session = $null
+            $script:Connected = $false
             $lblConnStatus.Text = 'Disconnected'
             $lblConnStatus.ForeColor = [System.Drawing.Color]::Gray
             $btnDisconnect.Visible = $false
@@ -1940,7 +1979,7 @@ function Show-ExchangeRetryGUI {
     $autoRefreshTimer.Interval = $interval
 
     $autoRefreshTimer.Add_Tick({
-        if (-not $script:Session) { return }
+        if (-not $script:Connected) { return }
         # Only auto-refresh if no jobs are currently running (avoid pileup)
         $running = Get-RunningJobCount
         if ($running -gt 0) { return }
@@ -2044,9 +2083,16 @@ function Show-ExchangeRetryGUI {
             }
         } catch {}
 
-        # Disconnect session
-        if ($script:Session) {
+        # Disconnect session (skip if running inside EMS)
+        if ($script:Session -and -not $script:IsEMS) {
             try { Disconnect-ExchangeRemote -Session $script:Session } catch {}
+        }
+    })
+
+    # ─── Auto-connect when running inside EMS ────────────────────────────────
+    $form.Add_Shown({
+        if ($script:IsEMS -and $txtServer.Text) {
+            $btnConnect.PerformClick()
         }
     })
 

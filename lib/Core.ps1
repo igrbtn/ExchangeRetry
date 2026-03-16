@@ -4,12 +4,52 @@
     Core Exchange transport functions library.
 .DESCRIPTION
     Dot-sourced by ExchangeRetry.ps1 (GUI) and ExchangeTrace.ps1 (CLI).
-    All functions return data only — no Write-Host.
+    All functions return data only - no Write-Host.
 #>
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Connection
 # ──────────────────────────────────────────────────────────────────────────────
+
+function Test-ExchangeManagementShell {
+    <#
+    .SYNOPSIS
+        Returns $true if Exchange Management Shell cmdlets are already loaded
+        (i.e. script is running inside EMS or snap-in is loaded).
+    #>
+    [CmdletBinding()]
+    param()
+    try {
+        $cmd = Get-Command Get-ExchangeServer -ErrorAction SilentlyContinue
+        return ($null -ne $cmd)
+    } catch {
+        return $false
+    }
+}
+
+function Get-LocalExchangeServer {
+    <#
+    .SYNOPSIS
+        Auto-detect the local Exchange server name.
+        Works inside EMS where Get-ExchangeServer is available.
+    #>
+    [CmdletBinding()]
+    param()
+    try {
+        # Try to find the local server by hostname match
+        $hostname = $env:COMPUTERNAME
+        $servers = @(Get-ExchangeServer -ErrorAction Stop)
+        # First: exact match on short name
+        $local = $servers | Where-Object { $_.Name -eq $hostname }
+        if ($local) { return $local.Name }
+        # Second: FQDN starts with hostname
+        $local = $servers | Where-Object { $_.Fqdn -like "$hostname.*" }
+        if ($local) { return $local.Fqdn }
+        # Fallback: return the first server
+        if ($servers.Count -gt 0) { return $servers[0].Name }
+    } catch {}
+    return $null
+}
 
 function Connect-ExchangeRemote {
     [CmdletBinding()]
@@ -484,7 +524,7 @@ function Parse-EmailHeaders {
             if ($rec -match '(?i)(TLS|STARTTLS|ESMTPS)') {
                 $hop['TLS'] = $true
             }
-            # Timestamp — typically after a semicolon
+            # Timestamp - typically after a semicolon
             if ($rec -match ';\s*(.+)$') {
                 $tsString = $Matches[1].Trim()
                 $parsed = $null

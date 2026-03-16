@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    ExchangeTrace — консольная утилита для трассировки писем в Exchange.
+    ExchangeTrace - console utility for Exchange message tracing.
 .DESCRIPTION
     Парсит заголовки писем (Received, X-MS-Exchange-*), ищет по транспортным логам,
     строит маршрут прохождения письма через серверы, генерирует отчёты.
@@ -473,7 +473,7 @@ function Get-TransportReport {
             if ($retryQueues) {
                 Write-Host "`n  Retry queues:" -ForegroundColor Red
                 foreach ($q in $retryQueues) {
-                    Write-Host "    $($q.Identity) — $($q.MessageCount) msgs — $($q.LastError)" -ForegroundColor Red
+                    Write-Host "    $($q.Identity) - $($q.MessageCount) msgs - $($q.LastError)" -ForegroundColor Red
                 }
             }
         }
@@ -508,7 +508,7 @@ function Get-TransportReport {
                 $state = if ($c.Enabled) { '[ON]' } else { '[OFF]' }
                 $stateColor = if ($c.Enabled) { 'Green' } else { 'Red' }
                 Write-Host "  $state " -NoNewline -ForegroundColor $stateColor
-                Write-Host "$($c.Name) — $($c.Bindings -join ', ')" -ForegroundColor White
+                Write-Host "$($c.Name) - $($c.Bindings -join ', ')" -ForegroundColor White
                 Write-Host "         Auth: $($c.AuthMechanism)" -ForegroundColor DarkGray
             }
         }
