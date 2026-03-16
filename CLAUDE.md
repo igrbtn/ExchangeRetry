@@ -64,4 +64,4 @@ Invoke-Pester -Path ./tests/
 - Тесты: `tests/ExchangeRetry.Tests.ps1`, `tests/ExchangeTrace.Tests.ps1`
 
 ## Versioning
-- Текущая версия: 0.5.0
+- Текущая версия: 0.6.0

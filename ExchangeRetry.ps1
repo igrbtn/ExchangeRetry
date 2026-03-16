@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-    ExchangeRetry v0.5 - Exchange Transport Manager GUI.
+    ExchangeRetry v0.6 - Exchange Transport Manager GUI.
 .DESCRIPTION
     WinForms GUI for monitoring and managing Microsoft Exchange transport.
     All Exchange operations run asynchronously via runspaces (lib/AsyncRunner.ps1).
     GUI never freezes; errors are caught gracefully.
 .NOTES
-    Version: 0.5.0
+    Version: 0.6.0
 #>
 
 #Requires -Version 5.1
@@ -200,7 +200,7 @@ function Show-ExchangeRetryGUI {
 
     # ─── Form ────────────────────────────────────────────────────────────────
     $form = New-Object System.Windows.Forms.Form
-    $form.Text = 'ExchangeRetry v0.5 - Exchange Transport Manager'
+    $form.Text = 'ExchangeRetry v0.6 - Exchange Transport Manager'
     $form.Size = New-Object System.Drawing.Size(1400, 900)
     $form.MinimumSize = New-Object System.Drawing.Size(1100, 700)
     $form.Font = New-Object System.Drawing.Font('Segoe UI', 9)
