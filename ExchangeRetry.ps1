@@ -955,7 +955,7 @@ function Show-ExchangeRetryGUI {
         if ($txtTrackMsgId.Text)    { $searchParams['MessageId'] = $txtTrackMsgId.Text }
         if ($txtTrackSender.Text)   { $searchParams['Sender'] = $txtTrackSender.Text }
         if ($txtTrackRecip.Text)    { $searchParams['Recipients'] = $txtTrackRecip.Text }
-        if ($txtTrackSubject.Text)  { $searchParams['MessageSubject'] = $txtTrackSubject.Text }
+        if ($txtTrackSubject.Text)  { $searchParams['Subject'] = $txtTrackSubject.Text }
         if ($cmbEventId.SelectedItem -and $cmbEventId.SelectedItem -ne 'All') {
             $searchParams['EventId'] = $cmbEventId.SelectedItem.ToString()
         }

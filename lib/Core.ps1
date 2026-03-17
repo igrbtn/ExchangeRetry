@@ -470,17 +470,22 @@ function Trace-ExchangeMessage {
         if ($Source)       { $params['Source']      = $Source }
         if ($Start)        { $params['Start']      = $Start }
         if ($End)          { $params['End']        = $End }
-        if ($Subject)      { $params['MessageSubject'] = $Subject }
+        # MessageSubject may not exist on all Exchange versions
+        if ($Subject) {
+            $cmd = Get-Command Get-MessageTrackingLog -ErrorAction SilentlyContinue
+            if ($cmd -and $cmd.Parameters.ContainsKey('MessageSubject')) {
+                $params['MessageSubject'] = $Subject
+            }
+        }
 
         $logs = Get-MessageTrackingLog @params |
-            Select-Object Timestamp, ClientIp, ClientHostname, OriginalClientIp,
-                          ServerIp, ServerHostname, SourceContext, ConnectorId,
+            Select-Object Timestamp, ClientIp, ClientHostname,
+                          ServerIp, ServerHostname, ConnectorId,
                           Source, EventId, InternalMessageId, MessageId,
                           @{N='Recipients';E={($_.Recipients -join '; ')}},
-                          @{N='RecipientStatus';E={($_.RecipientStatus -join '; ')}},
                           Sender, ReturnPath, Directionality,
-                          MessageSubject, TotalBytes, RecipientCount,
-                          MessageLatency, MessageLatencyType
+                          @{N='Subject';E={$_.MessageSubject}},
+                          TotalBytes, RecipientCount
 
         return $logs
     }
@@ -517,14 +522,13 @@ function Trace-CrossServerMessage {
             if ($End)   { $params['End']   = $End }
 
             $logs = Get-MessageTrackingLog @params |
-                Select-Object Timestamp, ClientIp, ClientHostname, OriginalClientIp,
-                              ServerIp, ServerHostname, SourceContext, ConnectorId,
+                Select-Object Timestamp, ClientIp, ClientHostname,
+                              ServerIp, ServerHostname, ConnectorId,
                               Source, EventId, InternalMessageId, MessageId,
                               @{N='Recipients';E={($_.Recipients -join '; ')}},
-                              @{N='RecipientStatus';E={($_.RecipientStatus -join '; ')}},
                               Sender, ReturnPath, Directionality,
-                              MessageSubject, TotalBytes, RecipientCount,
-                              MessageLatency, MessageLatencyType
+                              @{N='Subject';E={$_.MessageSubject}},
+                              TotalBytes, RecipientCount
 
             foreach ($entry in $logs) {
                 $allResults.Add($entry)
@@ -826,7 +830,7 @@ function Parse-SmtpProtocolLog {
 
         $files = @(
             if ((Get-Item $LogPath).PSIsContainer) {
-                Get-ChildItem -Path $LogPath -Include '*.log','*.LOG','*.csv' -File -Recurse -ErrorAction Stop |
+                Get-ChildItem -Path "$LogPath\*" -Include '*.log','*.LOG','*.csv' -File -Recurse -ErrorAction Stop |
                     Sort-Object LastWriteTime -Descending |
                     Select-Object -First $MaxFiles
             } else {
@@ -913,7 +917,7 @@ function Search-TransportLogs {
 
         $files = @(
             if ((Get-Item $LogPath).PSIsContainer) {
-                Get-ChildItem -Path $LogPath -Include '*.log','*.LOG','*.csv' -File -Recurse -ErrorAction Stop |
+                Get-ChildItem -Path "$LogPath\*" -Include '*.log','*.LOG','*.csv' -File -Recurse -ErrorAction Stop |
                     Sort-Object LastWriteTime -Descending |
                     Select-Object -First $MaxFiles
             } else {
@@ -974,7 +978,7 @@ function Parse-ConnectivityLog {
 
         $files = @(
             if ((Get-Item $LogPath).PSIsContainer) {
-                Get-ChildItem -Path $LogPath -Include '*.log','*.LOG','*.csv' -File -Recurse -ErrorAction Stop |
+                Get-ChildItem -Path "$LogPath\*" -Include '*.log','*.LOG','*.csv' -File -Recurse -ErrorAction Stop |
                     Sort-Object LastWriteTime -Descending |
                     Select-Object -First $MaxFiles
             } else {
