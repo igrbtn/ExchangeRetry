@@ -2229,6 +2229,10 @@ function Show-ExchangeRetryGUI {
                     if ($p) { $txtLogPath.Text = $p }
                 }
 
+                # Auto-populate Diagnostics > Connectivity Logs path
+                $connPath = $lp['ConnectivityLog']
+                if ($connPath) { $txtConnLogPath.Text = $connPath }
+
                 Update-StatusBar "Log paths loaded from $($lp['ServerName'])"
             } catch {
                 Update-StatusBar "Log paths error: $_"
