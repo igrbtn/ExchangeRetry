@@ -174,6 +174,103 @@ function Get-TransportLogPaths {
     }
 }
 
+function Get-TransportLoggingStatus {
+    <#
+    .SYNOPSIS
+        Check which transport logs are enabled/disabled on a server.
+    #>
+    [CmdletBinding()]
+    param([string]$Server)
+
+    try {
+        $params = @{ ErrorAction = 'Stop' }
+        if ($Server) { $params['Identity'] = $Server }
+        $ts = Get-TransportService @params | Select-Object -First 1
+
+        return [PSCustomObject]@{
+            ServerName                  = "$($ts.Name)"
+            ProtocolLoggingLevel_Send   = "$($ts.IntraOrgConnectorProtocolLoggingLevel)"
+            ProtocolLoggingLevel_Recv   = "$($ts.IntraOrgConnectorProtocolLoggingLevel)"
+            ConnectivityLogEnabled      = [bool]$ts.ConnectivityLogEnabled
+            MessageTrackingLogEnabled   = [bool]$ts.MessageTrackingLogEnabled
+            PipelineTracingEnabled      = [bool]$ts.PipelineTracingEnabled
+            # Send connectors logging
+            SendConnectors = @(
+                try {
+                    Get-SendConnector -ErrorAction Stop | ForEach-Object {
+                        [PSCustomObject]@{
+                            Name = $_.Name
+                            ProtocolLoggingLevel = "$($_.ProtocolLoggingLevel)"
+                        }
+                    }
+                } catch { }
+            )
+            # Receive connectors logging
+            ReceiveConnectors = @(
+                try {
+                    $srvParam = @{ ErrorAction = 'Stop' }
+                    if ($Server) { $srvParam['Server'] = $Server }
+                    Get-ReceiveConnector @srvParam | ForEach-Object {
+                        [PSCustomObject]@{
+                            Name = $_.Name
+                            ProtocolLoggingLevel = "$($_.ProtocolLoggingLevel)"
+                        }
+                    }
+                } catch { }
+            )
+        }
+    }
+    catch {
+        throw "Failed to get logging status: $_"
+    }
+}
+
+function Set-TransportLogging {
+    <#
+    .SYNOPSIS
+        Enable or disable transport logging on a server.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Server,
+        [Parameter(Mandatory)][ValidateSet('SendProtocol','ReceiveProtocol','Connectivity','MessageTracking','PipelineTracing')]
+        [string]$LogType,
+        [Parameter(Mandatory)][bool]$Enabled
+    )
+
+    try {
+        switch ($LogType) {
+            'Connectivity' {
+                Set-TransportService -Identity $Server -ConnectivityLogEnabled $Enabled -ErrorAction Stop
+            }
+            'MessageTracking' {
+                Set-TransportService -Identity $Server -MessageTrackingLogEnabled $Enabled -ErrorAction Stop
+            }
+            'PipelineTracing' {
+                Set-TransportService -Identity $Server -PipelineTracingEnabled $Enabled -ErrorAction Stop
+            }
+            'SendProtocol' {
+                # Enable/disable on all send connectors
+                $level = if ($Enabled) { 'Verbose' } else { 'None' }
+                Get-SendConnector -ErrorAction Stop | ForEach-Object {
+                    Set-SendConnector -Identity $_.Identity -ProtocolLoggingLevel $level -ErrorAction Stop
+                }
+            }
+            'ReceiveProtocol' {
+                # Enable/disable on all receive connectors for this server
+                $level = if ($Enabled) { 'Verbose' } else { 'None' }
+                Get-ReceiveConnector -Server $Server -ErrorAction Stop | ForEach-Object {
+                    Set-ReceiveConnector -Identity $_.Identity -ProtocolLoggingLevel $level -ErrorAction Stop
+                }
+            }
+        }
+        return "OK"
+    }
+    catch {
+        throw "Failed to set $LogType logging: $_"
+    }
+}
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Queue Operations
 # ──────────────────────────────────────────────────────────────────────────────

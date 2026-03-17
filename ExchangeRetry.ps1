@@ -1205,8 +1205,11 @@ function Show-ExchangeRetryGUI {
     $protoBottom = New-FlowBar -H 38
     $protoBottom.Dock = 'Bottom'
     $btnProtoExport = New-Btn -Text 'Export...' -W 80
+    $btnCheckLogging = New-Btn -Text 'Check Logging' -W 110
+    $btnToggleLogging = New-Btn -Text 'Enable Logging' -W 120 -Color 'Green'
+    $lblLoggingStatus = New-InlineLabel -Text '' -MarginLeft 6
     $lblProtoCount = New-InlineLabel -Text '0 entries' -MarginLeft 10
-    $protoBottom.Controls.AddRange(@($btnProtoExport, $lblProtoCount))
+    $protoBottom.Controls.AddRange(@($btnProtoExport, $btnCheckLogging, $btnToggleLogging, $lblLoggingStatus, $lblProtoCount))
 
     $protoPanel.Controls.Add($dgvProtocol)
     $protoPanel.Controls.Add($protoBottom)
@@ -1247,6 +1250,99 @@ function Show-ExchangeRetryGUI {
         }
     })
     $btnProtoExport.Add_Click({ Show-Export -Data $script:LastProtocolData -DefaultName 'protocol-logs' })
+
+    # Check logging status
+    $script:LastLoggingStatus = $null
+    $refreshLoggingStatus = {
+        $serverVal = $txtServer.Text.Trim()
+        if (-not $serverVal) { return }
+        Start-AsyncJob -Name 'CheckLogging' -Form $form -ScriptBlock {
+            param($Server)
+            return Get-TransportLoggingStatus -Server $Server
+        } -Parameters @{ Server = $serverVal } -OnComplete {
+            param($result)
+            try {
+                $script:LastLoggingStatus = $result
+
+                $sendEnabled = @("$($result.SendConnectors)" | Where-Object { $_ }) |
+                    ForEach-Object { "$_" } | Where-Object { $_ -match 'Verbose' }
+                $recvEnabled = @("$($result.ReceiveConnectors)" | Where-Object { $_ }) |
+                    ForEach-Object { "$_" } | Where-Object { $_ -match 'Verbose' }
+
+                # Build status text
+                $parts = @()
+                # Send connectors
+                $sendAll = $result.SendConnectors
+                $sendOn = @($sendAll | Where-Object { "$($_.ProtocolLoggingLevel)" -eq 'Verbose' }).Count
+                $sendTotal = @($sendAll).Count
+                $parts += "Send: $sendOn/$sendTotal"
+                # Receive connectors
+                $recvAll = $result.ReceiveConnectors
+                $recvOn = @($recvAll | Where-Object { "$($_.ProtocolLoggingLevel)" -eq 'Verbose' }).Count
+                $recvTotal = @($recvAll).Count
+                $parts += "Recv: $recvOn/$recvTotal"
+                # Other logs
+                if ($result.ConnectivityLogEnabled) { $parts += 'Conn:ON' } else { $parts += 'Conn:OFF' }
+                if ($result.MessageTrackingLogEnabled) { $parts += 'Track:ON' } else { $parts += 'Track:OFF' }
+                if ($result.PipelineTracingEnabled) { $parts += 'Pipe:ON' } else { $parts += 'Pipe:OFF' }
+
+                $lblLoggingStatus.Text = $parts -join ' | '
+
+                # Set toggle button state based on current protocol log type
+                $logType = if ($cmbProtoType.SelectedIndex -eq 0) { 'Send' } else { 'Recv' }
+                $isOn = if ($logType -eq 'Send') { $sendOn -gt 0 } else { $recvOn -gt 0 }
+                if ($isOn) {
+                    $btnToggleLogging.Text = 'Disable Logging'
+                    $btnToggleLogging.BackColor = [System.Drawing.Color]::FromArgb(200,50,50)
+                    $btnToggleLogging.ForeColor = [System.Drawing.Color]::White
+                    $lblLoggingStatus.ForeColor = [System.Drawing.Color]::Green
+                } else {
+                    $btnToggleLogging.Text = 'Enable Logging'
+                    $btnToggleLogging.BackColor = [System.Drawing.Color]::FromArgb(50,150,80)
+                    $btnToggleLogging.ForeColor = [System.Drawing.Color]::White
+                    $lblLoggingStatus.ForeColor = [System.Drawing.Color]::FromArgb(180,0,0)
+                }
+
+                Update-StatusBar "Logging status checked"
+            } catch {
+                Update-StatusBar "Logging status error: $_"
+            }
+        } -OnError {
+            param($err)
+            $lblLoggingStatus.Text = "Error: $err"
+            Update-StatusBar "Logging check error: $err"
+        }
+    }
+    $btnCheckLogging.Add_Click($refreshLoggingStatus)
+
+    # Toggle logging
+    $btnToggleLogging.Add_Click({
+        $serverVal = $txtServer.Text.Trim()
+        if (-not $serverVal) { return }
+        $logType = if ($cmbProtoType.SelectedIndex -eq 0) { 'SendProtocol' } else { 'ReceiveProtocol' }
+        $isCurrentlyOn = $btnToggleLogging.Text -match 'Disable'
+        $newState = -not $isCurrentlyOn
+        $action = if ($newState) { 'Enable' } else { 'Disable' }
+
+        $confirm = [System.Windows.Forms.MessageBox]::Show(
+            "$action $logType logging on $serverVal`?`nThis changes connector settings.",
+            'Confirm', 'YesNo', 'Question')
+        if ($confirm -ne 'Yes') { return }
+
+        Update-StatusBar "$($action)ing $logType logging..."
+        Start-AsyncJob -Name "$action $logType" -Form $form -ScriptBlock {
+            param($Server, $LogType, $Enabled)
+            Set-TransportLogging -Server $Server -LogType $LogType -Enabled $Enabled
+        } -Parameters @{ Server = $serverVal; LogType = $logType; Enabled = $newState } -OnComplete {
+            param($result)
+            Update-StatusBar "$logType logging ${action}d"
+            & $refreshLoggingStatus
+        } -OnError {
+            param($err)
+            Update-StatusBar "$action logging error: $err"
+            [System.Windows.Forms.MessageBox]::Show("Error: $err", 'Logging Error', 'OK', 'Error')
+        }
+    })
 
     # ═══════════════════════════════════════════════════════════════════════════
     # TAB 5: LOG SEARCH
@@ -2143,6 +2239,7 @@ function Show-ExchangeRetryGUI {
         & $refreshDashboard
         & $refreshQueues
         & $refreshErrors
+        & $refreshLoggingStatus
     }
 
     # ─── Connect button ──────────────────────────────────────────────────────
